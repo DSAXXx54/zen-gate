@@ -28,3 +28,4 @@ tools/patch_theme_anim.py
 .idea/
 *.swp
 shot-*.png
+tools/deploy_zenstats.py
