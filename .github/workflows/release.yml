@@ -29,7 +29,10 @@ jobs:
         shell: pwsh
         run: |
           $ver = "${{ github.ref_name }}" -replace '^v',''
+          Copy-Item README.md dist/README.md
+          if (-not (Test-Path dist/zen-gate.exe)) { throw "zen-gate.exe missing" }
           tar -a -c -f "dist/zen-gate-$ver.zip" -C dist zen-gate.exe README.md
+          Get-ChildItem dist
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
