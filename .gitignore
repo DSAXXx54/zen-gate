@@ -1,0 +1,29 @@
+# build output
+dist/
+*.exe
+*.exe.new
+*.exe.bak
+
+# local runtime data (never publish user data)
+backups/
+shots/
+web/
+logs/
+*.log
+
+# local state files
+config.json
+stats.json
+quota.json
+perf.json
+users.json
+stats-server.json
+
+# tools scratch
+tools/_check.js
+tools/patch_theme_anim.py
+
+# editor
+.vscode/
+.idea/
+*.swp
