@@ -28,8 +28,8 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          Copy-Item README.md dist/
-          Compress-Archive -Path dist/zen-gate.exe, dist/README.md -DestinationPath dist/zen-gate-$("${{ github.ref_name }}" -replace '^v','').zip -Force
+          $ver = "${{ github.ref_name }}" -replace '^v',''
+          tar -a -c -f "dist/zen-gate-$ver.zip" -C dist zen-gate.exe README.md
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
