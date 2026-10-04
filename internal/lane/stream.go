@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -23,6 +24,7 @@ type Decoder struct {
 	next     int
 	toolArgs map[int]string // block index → accumulated tool arguments
 	result   StreamResult
+	dsml     dsmlScrubber
 	// messages-wire provider block index → key
 	pidx map[float64]string
 	// responses-wire output_index → key
@@ -32,6 +34,38 @@ type Decoder struct {
 }
 
 // StreamResult accumulates what one upstream call produced.
+// DeepSeek v4-family models occasionally leak internal DSML control markup
+// into visible content at the reasoning→action boundary (upstream issue,
+// ported from dsh-our-free-model v1.4.4): a literal "<｜DSML｜ calls>" marker streamed as text right before a legitimate tool call. Scrub <｜DSML｜…> fragments from
+// visible text as it flows; a tail that could still complete into the opening
+// is held back until the next delta resolves it, and Finish flushes what is
+// left. A user quoting the token verbatim loses those characters — the trade
+// is deliberate: leaking control tokens routinely is worse.
+const dsmlOpening = "<｜DSML｜"
+var dsmlTag = regexp.MustCompile("<｜DSML｜[^>]*>")
+
+type dsmlScrubber struct{ held string }
+
+func (s *dsmlScrubber) push(delta string) string {
+	text := s.held + delta
+	s.held = ""
+	if cut := strings.LastIndex(text, "<"); cut != -1 {
+		tail := text[cut:]
+		if strings.HasPrefix(dsmlOpening, tail) ||
+			(strings.HasPrefix(tail, dsmlOpening) && !strings.Contains(tail, ">")) {
+			s.held = tail
+			text = text[:cut]
+		}
+	}
+	return dsmlTag.ReplaceAllString(text, "")
+}
+
+func (s *dsmlScrubber) flush() string {
+	out := s.held
+	s.held = ""
+	return dsmlTag.ReplaceAllString(out, "")
+}
+
 type StreamResult struct {
 	Usage               Usage
 	Finish              string // "" = upstream closed without a terminal frame
@@ -113,6 +147,13 @@ func (d *Decoder) Decode(payload []byte) {
 func (d *Decoder) Finish() StreamResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// Spill any DSML hold-back: a tail that looked like the opening of the
+	// control marker but never completed is ordinary text after all.
+	if rest := d.dsml.flush(); rest != "" {
+		idx := d.startBlock("text", "text", "", "")
+		d.emit(Chunk{Kind: ChunkTextDelta, Index: idx, Delta: rest})
+		d.result.SawText = true
+	}
 	// Chat-wire tool blocks have no explicit stop frame; validate every tool
 	// block still open before closing it.
 	for key, idx := range d.blocks {
@@ -162,7 +203,7 @@ func (d *Decoder) decodeChat(frame map[string]any) {
 func (d *Decoder) chatDelta(delta map[string]any) {
 	if c, ok := delta["content"].(string); ok && c != "" {
 		idx := d.startBlock("text", "text", "", "")
-		d.emit(Chunk{Kind: ChunkTextDelta, Index: idx, Delta: c})
+		d.emit(Chunk{Kind: ChunkTextDelta, Index: idx, Delta: d.dsml.push(c)})
 		d.result.SawText = true
 	}
 	reasoning := ""
@@ -277,7 +318,7 @@ func (d *Decoder) decodeMessages(frame map[string]any) {
 		case "text_delta":
 			t := jsonString(delta["text"])
 			if t != "" {
-				d.emit(Chunk{Kind: ChunkTextDelta, Index: blockIdx, Delta: t})
+				d.emit(Chunk{Kind: ChunkTextDelta, Index: blockIdx, Delta: d.dsml.push(t)})
 				d.result.SawText = true
 			}
 		case "thinking_delta":
@@ -367,7 +408,7 @@ func (d *Decoder) decodeResponses(frame map[string]any) {
 			if idx, ok2 := d.blocks[key]; ok2 {
 				t := jsonString(frame["delta"])
 				if t != "" {
-					d.emit(Chunk{Kind: ChunkTextDelta, Index: idx, Delta: t})
+					d.emit(Chunk{Kind: ChunkTextDelta, Index: idx, Delta: d.dsml.push(t)})
 					d.result.SawText = true
 				}
 			}
