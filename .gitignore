@@ -7,7 +7,7 @@ dist/
 # local runtime data (never publish user data)
 backups/
 shots/
-web/
+/web/
 logs/
 *.log
 
