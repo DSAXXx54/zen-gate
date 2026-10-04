@@ -87,3 +87,22 @@ zen-gate.exe --no-tray --port 8787     # 控制台模式运行
 ```
 
 数据目录：`%APPDATA%\zen-gate\`（config.json / stats.json / backups\）
+
+## 一键更新与发布
+
+- 应用内置更新检查：默认轮询 `https://api.github.com/repos/LAGcomcom/zen-gate/releases/latest`，发现新版本时总览页出现「一键更新」按钮（自动下载 → 替换 → 重启）。
+- 发新版本：推一个 `v*` 标签（GitHub Actions 自动构建发布），或本地跑 `powershell -File tools\release.ps1 -Version 1.2.1`。
+
+## 用户统计后台（zenstats）
+
+独立的单文件服务器，接收各部署实例的匿名心跳（installId / 版本 / 国家，仅此三项），展示用户总览仪表盘：
+
+```powershell
+# 服务器上
+./zenstats.exe                      # 默认 :8321，数据存同目录 stats-server.json
+ZENSTATS_ADDR=:443 ZENSTATS_TOKEN=secret ./zenstats.exe   # 自定义端口 + 仪表盘访问令牌
+```
+
+- 仪表盘：`http://your-server:8321/?token=secret`
+- Zen Gate 端：设置 → 网络 → 「统计服务器 URL」填 `http://your-server:8321`（留空关闭心跳）
+- 心跳载荷仅 {installId, version, country}，每 6 小时一次

@@ -1,6 +1,8 @@
 // Package update checks a configurable feed for newer zen-gate builds.
-// The feed is any URL returning {"version":"x.y.z","url":"https://…"} —
-// e.g. GitHub's releases/latest API reshaped, or a static JSON file.
+// Two feed shapes are understood:
+//   - GitHub Releases API ("https://api.github.com/repos/<o>/<r>/releases/latest")
+//     — parsed natively (tag_name/html_url/body/assets)
+//   - any URL returning {"version":"x.y.z","url":"https://…"}
 package update
 
 import (
@@ -13,10 +15,14 @@ import (
 	"time"
 )
 
+// FeedURL is the default update feed, overridable via -ldflags at release
+// build time and per-install through settings.
+var FeedURL = ""
+
 // Current is the running version, overridable via -ldflags.
 var Current = "1.1.0"
 
-// FeedJSON is the expected remote shape.
+// FeedJSON is the expected remote shape for plain feeds.
 type FeedJSON struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
@@ -33,11 +39,67 @@ func Check(feedURL string, client getJSONer) (bool, string, string, string, erro
 	if err != nil {
 		return false, "", "", "", err
 	}
+	if IsGitHubFeed(feedURL) {
+		return parseGitHubRelease(data)
+	}
 	var feed FeedJSON
 	if err := json.Unmarshal(data, &feed); err != nil {
 		return false, "", "", "", err
 	}
 	return Newer(feed.Version, Current), strings.TrimSpace(feed.Version), strings.TrimSpace(feed.URL), feed.Notes, nil
+}
+
+// IsGitHubFeed reports whether the feed URL is a GitHub Releases API endpoint.
+func IsGitHubFeed(feedURL string) bool {
+	u := strings.TrimSuffix(strings.TrimSpace(feedURL), "/")
+	return strings.HasPrefix(u, "https://api.github.com/repos/") && strings.HasSuffix(u, "/releases/latest")
+}
+
+// githubRelease mirrors the slice of the Releases API response zen-gate needs.
+type githubRelease struct {
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	Body    string `json:"body"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+		Size               int64  `json:"size"`
+	} `json:"assets"`
+}
+
+// parseGitHubRelease maps a Releases/latest payload onto the feed shape,
+// preferring the windows exe asset as the download URL.
+func parseGitHubRelease(data []byte) (bool, string, string, string, error) {
+	var rel githubRelease
+	if err := json.Unmarshal(data, &rel); err != nil {
+		return false, "", "", "", err
+	}
+	url := rel.HTMLURL
+	for _, a := range rel.Assets {
+		if strings.EqualFold(a.Name, "zen-gate.exe") {
+			url = a.BrowserDownloadURL
+			break
+		}
+	}
+	return Newer(rel.TagName, Current), strings.TrimSpace(rel.TagName), url, rel.Body, nil
+}
+
+// LatestAssetURL returns the windows exe download URL from a Releases/latest
+// payload (used by the one-click updater).
+func LatestAssetURL(data []byte) (string, int64, error) {
+	var rel githubRelease
+	if err := json.Unmarshal(data, &rel); err != nil {
+		return "", 0, err
+	}
+	for _, a := range rel.Assets {
+		if strings.EqualFold(a.Name, "zen-gate.exe") {
+			return a.BrowserDownloadURL, a.Size, nil
+		}
+	}
+	if len(rel.Assets) > 0 {
+		return rel.Assets[0].BrowserDownloadURL, rel.Assets[0].Size, nil
+	}
+	return "", 0, fmt.Errorf("release has no downloadable assets")
 }
 
 type getJSONer interface{ Get(url string) ([]byte, error) }

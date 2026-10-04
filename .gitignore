@@ -27,3 +27,4 @@ tools/patch_theme_anim.py
 .vscode/
 .idea/
 *.swp
+shot-*.png

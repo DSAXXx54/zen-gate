@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	neturl "net/url"
 	"zen-gate/internal/agents"
 	"zen-gate/internal/lane"
+	"zen-gate/internal/update"
 	"zen-gate/internal/notify"
 	"zen-gate/internal/store"
 )
@@ -53,6 +55,8 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, rest string
 	case rest == "reprobe" && r.Method == http.MethodPost:
 		go s.Lane.ProbeRound(r.Context(), true)
 		writeJSON(w, 200, map[string]any{"ok": true})
+	case rest == "update/apply" && r.Method == http.MethodPost:
+		s.adminUpdateApply(w)
 	case rest == "key/rotate" && r.Method == http.MethodPost:
 		s.Store.Config().MainKey = store.GenerateKey("")
 		_ = s.Store.Save()
@@ -204,6 +208,7 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			"closeToTray":          cfg.CloseToTray,
 			"notifications":        cfg.Notifications,
 			"updateFeed":           cfg.UpdateFeed,
+			"statsServerUrl":       cfg.StatsServerURL,
 			"updateAvailable":      s.updateAvailable,
 			"updateVersion":        s.updateVersion,
 			"updateURL":            s.updateURL,
@@ -276,6 +281,7 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		ProxyMode            *string `json:"proxyMode"`
 		ProxyURL             *string `json:"proxyUrl"`
 		UpdateFeed           *string `json:"updateFeed"`
+		StatsServerURL       *string `json:"statsServerUrl"`
 		FailoverEnabled      *bool   `json:"failoverEnabled"`
 		FailoverMax          *int    `json:"failoverMax"`
 	}
@@ -338,6 +344,10 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.UpdateFeed != nil {
 		cfg.UpdateFeed = strings.TrimSpace(*in.UpdateFeed)
+		changed = true
+	}
+	if in.StatsServerURL != nil {
+		cfg.StatsServerURL = strings.TrimRight(strings.TrimSpace(*in.StatsServerURL), "/")
 		changed = true
 	}
 	if in.ExposeRegion != nil {
@@ -545,6 +555,37 @@ func (s *Server) adminProbeOne(w http.ResponseWriter, model string) {
 		s.logger.Infof("手动探测 %s → %s (首字 %dms)", model, r.State, r.TTFTMs)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "result": r})
+}
+
+// adminUpdateApply downloads the pending release asset and swaps the running
+// exe; the process relaunches itself and the dashboard reconnects to the new
+// instance. Gate: an update must have been detected first.
+func (s *Server) adminUpdateApply(w http.ResponseWriter) {
+	if !s.updateAvailable || s.updateURL == "" {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "没有检测到可用更新"})
+		return
+	}
+	if _, err := update.Apply(s.updateURL, lane.Client()); err != nil {
+		if s.logger != nil {
+			s.logger.Errorf("一键更新失败: %v", err)
+		}
+		writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if s.logger != nil {
+		s.logger.Infof("一键更新完成 (v%s → %s)，重启中…", Version, s.updateVersion)
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "restarting": true})
+	go func() {
+		time.Sleep(800 * time.Millisecond) // let the response reach the dashboard
+		if err := update.Relaunch(); err != nil {
+			if s.logger != nil {
+				s.logger.Errorf("重启新版本失败: %v", err)
+			}
+			return
+		}
+		os.Exit(0)
+	}()
 }
 
 func (s *Server) adminAgent(w http.ResponseWriter, r *http.Request, rest string) {

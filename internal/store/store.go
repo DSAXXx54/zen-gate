@@ -5,10 +5,12 @@ package store
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,7 +53,9 @@ type Config struct {
 	Notifications        bool   `json:"notifications"`
 	UpdateFeed           string `json:"updateFeed"`
 	LastVersion          string `json:"lastVersion,omitempty"`
-	ProxyMode            string `json:"proxyMode"` // env | direct | custom
+	StatsServerURL       string `json:"statsServerUrl,omitempty"`
+	InstallID            string `json:"installId,omitempty"`
+	ProxyMode            string `json:"proxyMode"` // env | system | direct | custom
 	ProxyURL             string `json:"proxyUrl,omitempty"`
 	FailoverEnabled      bool   `json:"failoverEnabled"`
 	FailoverMax          int    `json:"failoverMax"`
@@ -214,6 +218,19 @@ func Open() (*Store, error) {
 	}
 	if cfg.FailoverMax <= 0 {
 		cfg.FailoverMax = 2
+	}
+	// v3: point the update feed at the project's GitHub Releases by default
+	// (a custom feed set by the user wins) and mint the anonymous install id.
+	if cfg.SchemaVersion < 3 {
+		cfg.SchemaVersion = 3
+		if strings.TrimSpace(cfg.UpdateFeed) == "" {
+			cfg.UpdateFeed = "https://api.github.com/repos/LAGcomcom/zen-gate/releases/latest"
+		}
+	}
+	if strings.TrimSpace(cfg.InstallID) == "" {
+		b := make([]byte, 12)
+		_, _ = rand.Read(b)
+		cfg.InstallID = hex.EncodeToString(b)
 	}
 	if cfg.SchemaVersion == 0 {
 		// first migration to the versioned schema: mature defaults

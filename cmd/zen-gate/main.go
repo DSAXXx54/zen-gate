@@ -7,9 +7,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -64,6 +67,7 @@ func main() {
 	if *port > 0 {
 		cfg.Port = *port
 	}
+	update.CleanupBackup() // remove the previous binary left by 一键更新
 	logger.Infof("zen-gate %s 启动 (port %d, proxy %s)", gateway.Version, cfg.Port, cfg.ProxyMode)
 
 	ln := lane.NewLane()
@@ -152,10 +156,14 @@ func main() {
 	go func() {
 		check := func() {
 			cfg := st.Config()
-			if strings.TrimSpace(cfg.UpdateFeed) == "" {
+			feed := strings.TrimSpace(cfg.UpdateFeed)
+			if feed == "" {
+				feed = update.FeedURL // compiled-in default (release builds)
+			}
+			if feed == "" {
 				return
 			}
-			has, ver, url, _, err := update.Check(cfg.UpdateFeed, update.HTTP{Timeout: 15 * time.Second, Client: lane.Client()})
+			has, ver, url, _, err := update.Check(feed, update.HTTP{Timeout: 15 * time.Second, Client: lane.Client()})
 			if err != nil {
 				logger.Warnf("update check failed: %v", err)
 				return
@@ -181,6 +189,46 @@ func main() {
 				return
 			case <-t.C:
 				check()
+			}
+		}
+	}()
+
+	// anonymous usage heartbeat: fires only when a stats server is configured.
+	// Payload is {installId, version, country} — nothing else leaves the machine.
+	go func() {
+		ping := func() {
+			url := strings.TrimSpace(st.Config().StatsServerURL)
+			if url == "" {
+				return
+			}
+			_, _, eg := ln.Snapshot()
+			body, _ := json.Marshal(map[string]any{
+				"installId": st.Config().InstallID,
+				"version":   gateway.Version,
+				"country":   eg.Country,
+			})
+			req, err := http.NewRequest(http.MethodPost, strings.TrimRight(url, "/")+"/api/ping", bytes.NewReader(body))
+			if err != nil {
+				return
+			}
+			req.Header.Set("content-type", "application/json")
+			client := *lane.Client()
+			client.Timeout = 10 * time.Second
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+			}
+		}
+		time.Sleep(90 * time.Second) // let the first egress detect finish
+		ping()
+		pt := time.NewTicker(6 * time.Hour)
+		defer pt.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pt.C:
+				ping()
 			}
 		}
 	}()
