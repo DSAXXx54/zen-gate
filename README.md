@@ -15,7 +15,7 @@
 [![platform](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows11&logoColor=white)](https://github.com/LAGcomcom/zen-gate/releases)
 [![license](https://img.shields.io/github/license/LAGcomcom/zen-gate?style=flat-square)](LICENSE)
 
-[下载最新版](https://github.com/LAGcomcom/zen-gate/releases/latest) · [用户统计总览](http://8.148.205.229:8321) · [问题反馈](https://github.com/LAGcomcom/zen-gate/issues)
+[下载最新版](https://github.com/LAGcomcom/zen-gate/releases/latest) · [问题反馈](https://github.com/LAGcomcom/zen-gate/issues)
 
 </div>
 
@@ -55,20 +55,6 @@ OpenCode Zen 提供了一批**免登录、免计费**的模型车道，但它们
 
 > 想接 ChatBox / Cherry Studio / 任意 SDK？「接入」页有每个客户端的填法和 curl 示例。
 
-## 用户统计后台（可选）
-
-配套的单文件服务器 `zenstats` 接收各部署实例的匿名心跳（仅 installId / 版本 / 国家三项），
-提供一张「有多少人在用」的总览仪表盘：
-
-<div align="center"><img src="docs/screenshot-stats.png" width="640" alt="zenstats 仪表盘"></div>
-
-```bash
-# 服务器（Linux / Windows 单文件，数据存同目录 JSON）
-./zenstats                                   # 默认 :8321
-ZENSTATS_ADDR=:443 ZENSTATS_TOKEN=secret ./zenstats   # 自定义端口 + 仪表盘访问令牌
-```
-
-Zen Gate 端在「设置 → 网络 → 统计服务器 URL」填上服务器地址即可（留空关闭心跳）。
 
 ## 从源码构建
 
@@ -77,18 +63,10 @@ go build -trimpath -ldflags "-s -w -H=windowsgui   -X zen-gate/internal/gateway.
 ```
 
 发版：推一个 `v*` 标签（GitHub Actions 自动构建发布），或本地
-`powershell -File toolselease.ps1 -Version 1.2.2`。
+`powershell -File tools
+elease.ps1 -Version 1.2.2`。
 
 ## 一键更新
 
 应用每 6 小时检查本仓库的 Releases（走系统代理）。发现新版本时总览页出现「一键更新」
 按钮——自动下载、替换、重启，全程约 10 秒。
-
-## 协议与致谢
-
-- 免费车道的线协议与探测策略移植自 MIT 项目
-  [dsh-our-free-model](https://github.com/zouyuxuan122/dsh-our-free-model) (v1.3.2, zouyuxuan122)；
-- 免费额度受上游条款约束，可能随时收紧或被地区门拦截；
-- 本仓库代码以 [MIT](LICENSE) 发布。
-
-<div align="center"><sub>ZEN—GATE · 免费，但不将就</sub></div>
