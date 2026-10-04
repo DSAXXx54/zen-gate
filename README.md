@@ -1,108 +1,94 @@
-# Zen Gate — 本地免费模型网关
+<div align="center">
 
-一个约 8MB 的 Windows 托盘程序：把 **OpenCode Zen 免费车道**变成你本机的
-OpenAI / Anthropic 兼容 API，并**自动配置本机已装的 AI Agent**——打开开关，
-对应 Agent 的模型选择器里就会出现这些免费模型。
+<img src="assets/icon-256.png" width="88" alt="Zen Gate">
 
-```
-D:\opencode zen\zen-gate\dist\zen-gate.exe
-```
+# ZEN—GATE
+
+**把 OpenCode Zen 免费模型，装进你所有的 AI Agent。**
+
+一个 Windows 桌面托盘程序：本地起一个 OpenAI / Anthropic 兼容网关，
+自动探测并接入你机器上已安装的 AI Agent——模型选择器里直接出现免费模型。
+
+[![release](https://img.shields.io/github/v/release/LAGcomcom/zen-gate?style=flat-square&label=%E7%89%88%E6%9C%AC)](https://github.com/LAGcomcom/zen-gate/releases/latest)
+[![downloads](https://img.shields.io/github/downloads/LAGcomcom/zen-gate/total?style=flat-square&label=%E4%B8%8B%E8%BD%BD)](https://github.com/LAGcomcom/zen-gate/releases)
+[![go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![platform](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows11&logoColor=white)](https://github.com/LAGcomcom/zen-gate/releases)
+[![license](https://img.shields.io/github/license/LAGcomcom/zen-gate?style=flat-square)](LICENSE)
+
+[下载最新版](https://github.com/LAGcomcom/zen-gate/releases/latest) · [用户统计总览](http://8.148.205.229:8321) · [问题反馈](https://github.com/LAGcomcom/zen-gate/issues)
+
+</div>
+
+---
+
+## 这是什么
+
+OpenCode Zen 提供了一批**免登录、免计费**的模型车道，但它们没有标准的 API Key 体系，
+一般客户端接不上。Zen Gate 在本机把这条车道封装成**标准 OpenAI / Anthropic 兼容接口**，
+并自动完成所有 Agent 的配置注入：
+
+<div align="center"><img src="docs/screenshot-home.png" width="820" alt="Zen Gate 总览"></div>
+
+- **全自动适配**：检测到 ZCode / OpenCode / Codex / Claude Code / DeepSeek Harness /
+  Crush / ChatBox / Aider / Qwen Code / Continue 后，一键注入配置（先备份，关闭即还原），
+  重启对应 Agent 就能在模型选择器里看到免费模型；
+- **协议完整移植**：会话铸造、指纹门、三种线协议（chat / responses / messages）、
+  纯思考断流恢复——全部来自 MIT 协议层参考实现 dsh-our-free-model；
+- **单模型体检**：每个模型可单独探测可用性与首字延迟，探测历史持久化、跨重启可查。
+
+## 亮点
+
+| | |
+|---|---|
+| 🔄 **限流自动切换** | 模型被限流时自动换下一个可用模型接住请求，响应头标注实际模型 |
+| 📊 **额度测算** | 无官方余额 API 也能估：限额时段追踪 + 恢复时间预估 + 日额度进度条 |
+| ⏱ **首字历史** | 每次探测的首字延迟入样本环，重启不丢，模型页直接看平均首字 |
+| 🌡 **GitHub 式热力图** | 365 天用量热力图 + 多模型趋势折线 + 每 / 周 / 累计三种视图 |
+| 🖥 **托盘常驻** | 关窗即进托盘、开机自启、系统通知、跟随系统代理 |
+| 🛡 **只听本机** | 网关仅绑定 127.0.0.1，管理端有同源护栏，配置先备份再改 |
 
 ## 快速开始
 
-1. 双击 `dist\zen-gate.exe`（托盘图标出现，管理页自动在浏览器打开）
-2. 在「Agent 自动适配」区打开你想接的 Agent 开关
-3. 重启对应 Agent → 模型选择器出现 `Zen Gate` 分组下的免费模型
-4. 托盘右键：打开管理页 / 复制接入地址 / 退出
+1. 从 [Releases](https://github.com/LAGcomcom/zen-gate/releases/latest) 下载 `zen-gate.exe`，双击运行（托盘出现图标）；
+2. 到「Agent 适配」页打开你装的 Agent 开关 → 重启该 Agent；
+3. 模型选择器里出现免费模型，直接用。
 
-## Agent 适配
+> 想接 ChatBox / Cherry Studio / 任意 SDK？「接入」页有每个客户端的填法和 curl 示例。
 
-| Agent | 注入点 | 状态 |
-| --- | --- | --- |
-| ZCode | `~/.zcode/v2/provider_config.json`（openai-chat-completions 渠道） | ✅ 实测 |
-| OpenCode | `~/.config/opencode/opencode.json`（@ai-sdk/openai-compatible） | ✅ 实测 |
-| Codex CLI/桌面版 | `~/.codex/config.toml`（`[model_providers.zen_gate]`, wire_api=chat） | ✅ 实测 |
-| Claude Code | `~/.claude/settings.json` env（ANTHROPIC_BASE_URL 等，原值自动备份还原） | ✅ 实测 |
-| DeepSeek Harness | 安装/升级 `dsh-our-free-model` 插件到 profiles | ✅ 实测 |
-| Crush | `~/.config/crush/crush.json` providers（openai-compat，含模型元数据） | ✅ 模拟实测 |
-| ChatBox | `%APPDATA%\ChatBox\chatbox.config.json` openai 渠道 | ✅ 模拟实测 |
-| Aider | `~/.aider.conf.yml` openai-api-base/key（marker 块） | ✅ |
-| Qwen Code | `~/.qwen/settings.json` modelProviders + `.env` 凭据 | ✅ |
-| Continue (VS Code) | `~/.continue/config.yaml` models 块（已有 models 时转手动） | ✅ |
+## 用户统计后台（可选）
 
-开启任一 Agent 会生成一个独立子 Key（便于分开统计用量）。
-所有写入前都会备份原文件到 `%APPDATA%\zen-gate\backups\<agent>\`；关闭开关即还原。
-目标应用正在运行时会提示「需重启生效」。
+配套的单文件服务器 `zenstats` 接收各部署实例的匿名心跳（仅 installId / 版本 / 国家三项），
+提供一张「有多少人在用」的总览仪表盘：
 
-无法自动注入的客户端（Cherry Studio 未公开配置格式、Cline/Roo 的 SQLite 状态、ChatGPT 官方版、Gemini CLI 等）
-在管理页手动复制 Base URL + Key 接入即可。
-
-## API
-
-```
-GET  /v1/models                OpenAI 模型列表
-POST /v1/chat/completions      流式/非流式/工具调用/图片（reasoning 走 delta.reasoning）
-POST /v1/responses             OpenAI Responses 协议（Codex 系）
-POST /v1/messages              Anthropic 协议（Claude Code 系）
-```
-
-模型名可带思考档位后缀：`mimo-v2.6-flash-free (deep)` / `(light)` / `(balanced)`。
-档位是**强制下发的输出 token 预算**（2048 / 8192 / 模型上限；思考关不掉的模型翻倍），
-不是被上游忽略的 reasoning_effort 字符串。
+<div align="center"><img src="docs/screenshot-stats.png" width="640" alt="zenstats 仪表盘"></div>
 
 ```bash
-curl http://127.0.0.1:8787/v1/chat/completions \
-  -H "Authorization: Bearer ofm-…" -H "content-type: application/json" \
-  -d '{"model":"mimo-v2.6-flash-free (deep)","messages":[{"role":"user","content":"你好"}],"stream":true}'
+# 服务器（Linux / Windows 单文件，数据存同目录 JSON）
+./zenstats                                   # 默认 :8321
+ZENSTATS_ADDR=:443 ZENSTATS_TOKEN=secret ./zenstats   # 自定义端口 + 仪表盘访问令牌
 ```
 
-## 工程行为（移植自 dsh-our-free-model v1.3.2）
+Zen Gate 端在「设置 → 网络 → 统计服务器 URL」填上服务器地址即可（留空关闭心跳）。
 
-- **会话稳定映射**：同一对话永远映射同一上游 session（免费额度按会话计，乱铸 id 会 429）
-- **工具四件套门**：自动补齐 `bash/glob/grep/read` 指纹声明（真实工具优先晋升，缺槽补自禁用诱饵）
-- **按 body 形状嗅探流式**：网关高负载时用 JSON content-type 回 SSE 也不会解码失败
-- **截断分类**：上游中途掐流不再被当成正常结束；纯思考掐断自动用检查点续写一次（≤480s 总限）
-- **429 退避**：不硬撞重试；探测全 429 后 30→120 分钟指数退避
-- **可用性探测**：每 15 分钟实测（只有网关点名拒绝才从列表摘模型，列表永不为空）
-- 管理台只绑 127.0.0.1；主 Key `timingSafeEqual` 比对；配置原子写入
+## 从源码构建
 
-## 已知边界
-
-- 免费车道按会话限速，多 Agent 并发打满会 429（管理页显示「已限额」）
-- 上游随时可能收紧免费额度或地区门（管理页按出口 IP 如实显示 region 状态）
-- 本工具仅供本机个人使用；使用免费额度受上游提供方条款约束
-
-## 归属
-
-协议层行为移植自 MIT 项目 [dsh-our-free-model](https://github.com/zouyuxuan122/dsh-our-free-model)
-(v1.3.2, © zouyuxuan122)，内嵌的 DeepSeek Harness 插件即为该项目的发布文件（MIT）。
-
-## 开发
-
-```
-go test ./...                          # 单元测试（假上游，不出网）
-go build -o dist/zen-gate.exe ./cmd/zen-gate                    # 控制台调试版
-go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/zen-gate.exe ./cmd/zen-gate   # 托盘正式版
-zen-gate.exe --no-tray --port 8787     # 控制台模式运行
+```bash
+go build -trimpath -ldflags "-s -w -H=windowsgui   -X zen-gate/internal/gateway.Version=1.2.1   -X zen-gate/internal/update.Current=1.2.1" -o dist/zen-gate.exe ./cmd/zen-gate
 ```
 
-数据目录：`%APPDATA%\zen-gate\`（config.json / stats.json / backups\）
+发版：推一个 `v*` 标签（GitHub Actions 自动构建发布），或本地
+`powershell -File toolselease.ps1 -Version 1.2.2`。
 
-## 一键更新与发布
+## 一键更新
 
-- 应用内置更新检查：默认轮询 `https://api.github.com/repos/LAGcomcom/zen-gate/releases/latest`，发现新版本时总览页出现「一键更新」按钮（自动下载 → 替换 → 重启）。
-- 发新版本：推一个 `v*` 标签（GitHub Actions 自动构建发布），或本地跑 `powershell -File tools\release.ps1 -Version 1.2.1`。
+应用每 6 小时检查本仓库的 Releases（走系统代理）。发现新版本时总览页出现「一键更新」
+按钮——自动下载、替换、重启，全程约 10 秒。
 
-## 用户统计后台（zenstats）
+## 协议与致谢
 
-独立的单文件服务器，接收各部署实例的匿名心跳（installId / 版本 / 国家，仅此三项），展示用户总览仪表盘：
+- 免费车道的线协议与探测策略移植自 MIT 项目
+  [dsh-our-free-model](https://github.com/zouyuxuan122/dsh-our-free-model) (v1.3.2, zouyuxuan122)；
+- 免费额度受上游条款约束，可能随时收紧或被地区门拦截；
+- 本仓库代码以 [MIT](LICENSE) 发布。
 
-```powershell
-# 服务器上
-./zenstats.exe                      # 默认 :8321，数据存同目录 stats-server.json
-ZENSTATS_ADDR=:443 ZENSTATS_TOKEN=secret ./zenstats.exe   # 自定义端口 + 仪表盘访问令牌
-```
-
-- 仪表盘：`http://your-server:8321/?token=secret`
-- Zen Gate 端：设置 → 网络 → 「统计服务器 URL」填 `http://your-server:8321`（留空关闭心跳）
-- 心跳载荷仅 {installId, version, country}，每 6 小时一次
+<div align="center"><sub>ZEN—GATE · 免费，但不将就</sub></div>

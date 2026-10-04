@@ -1167,9 +1167,7 @@ function renderSettings(s){
           <button class="ghost" id="btn-csv">导出用量 (CSV)</button>
         </div>
       </div>
-      <div class="card"><h3>关于</h3>
-        <div class="dim" style="font-size:12.5px">Zen Gate · 协议层移植自 MIT 项目 dsh-our-free-model (v1.3.2, zouyuxuan122)。<br>
-        上游为 OpenCode Zen 免费车道；免费额度受上游条款约束，可能随时收紧或被地区门拦截。用量与配置只保存在本机。</div></div>`;
+      `;
     el.querySelector("#save").onclick = async ()=>{
       const j = await api("/settings", { updateFeed: document.getElementById("set-feed").value.trim(),
       statsServerUrl: document.getElementById("set-stats-url").value.trim(),

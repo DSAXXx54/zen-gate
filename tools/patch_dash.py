@@ -1,207 +1,13 @@
-// Command zenstats is the server-side companion of Zen Gate: it receives the
-// anonymous heartbeats the desktop gateway sends ({installId, version,
-// country}) and serves a dashboard showing how many people are using it.
-//
-// Single binary, zero dependencies, one JSON file for storage:
-//
-//	zenstats.exe              # serves :8321 (dashboard + API)
-//	ZENSTATS_ADDR=:8321       # override listen address
-//	ZENSTATS_TOKEN=s3cret     # require ?token=s3cret on the dashboard (optional)
-package main
+import re
 
-import (
-	_ "embed"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-)
+p = r'cmd\zenstats\main.go'
+src = open(p, encoding='utf-8').read()
 
-//go:embed logo.png
-var logoPNG []byte
+start = src.index('const dashHTML = `')
+m = re.search(r'const dashHTML = `.*?`\n', src, re.S)
+assert m, 'dashHTML block not found'
 
-// Install is one deployed Zen Gate instance.
-type Install struct {
-	InstallID string `json:"installId"`
-	Version   string `json:"version"`
-	Country   string `json:"country,omitempty"`
-	FirstSeen int64  `json:"firstSeen"`
-	LastSeen  int64  `json:"lastSeen"`
-	Pings     int64  `json:"pings"`
-}
-
-type store struct {
-	mu       sync.Mutex
-	installs map[string]*Install
-	dirty    bool
-}
-
-var db = &store{installs: map[string]*Install{}}
-
-var dataFile string
-
-func main() {
-	addr := os.Getenv("ZENSTATS_ADDR")
-	if addr == "" {
-		addr = ":8321"
-	}
-	exe, _ := os.Executable()
-	dataFile = filepath.Join(filepath.Dir(exe), "stats-server.json")
-	load()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/logo.png", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("content-type", "image/png")
-		w.Header().Set("cache-control", "public, max-age=86400")
-		_, _ = w.Write(logoPNG)
-	})
-	mux.HandleFunc("/", handleDashboard)
-	mux.HandleFunc("/api/ping", handlePing)
-	mux.HandleFunc("/api/stats", handleStats)
-	mux.HandleFunc("/api/installs", handleInstalls)
-
-	fmt.Printf("zenstats serving on %s (data: %s)\n", addr, dataFile)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		fmt.Println("listen error:", err)
-		os.Exit(1)
-	}
-}
-
-func load() {
-	b, err := os.ReadFile(dataFile)
-	if err != nil {
-		return
-	}
-	_ = json.Unmarshal(b, &db.installs)
-}
-
-func saveLocked() {
-	snapshot := make(map[string]*Install, len(db.installs))
-	for k, v := range db.installs {
-		cp := *v
-		snapshot[k] = &cp
-	}
-	b, _ := json.MarshalIndent(snapshot, "", " ")
-	tmp := dataFile + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err == nil {
-		_ = os.Rename(tmp, dataFile)
-	}
-	db.dirty = false
-}
-
-func handlePing(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var in Install
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
-		return
-	}
-	in.InstallID = strings.TrimSpace(in.InstallID)
-	if in.InstallID == "" || len(in.InstallID) > 64 {
-		http.Error(w, "missing installId", http.StatusBadRequest)
-		return
-	}
-	now := time.Now().UnixMilli()
-	in.Version = strings.TrimSpace(in.Version)
-	in.Country = strings.ToUpper(strings.TrimSpace(in.Country))
-	in.LastSeen = now
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	cur, ok := db.installs[in.InstallID]
-	if !ok {
-		in.FirstSeen = now
-		in.Pings = 1
-		db.installs[in.InstallID] = &in
-		db.dirty = true
-	} else {
-		cur.Version, cur.Country, cur.LastSeen = in.Version, in.Country, in.LastSeen
-		cur.Pings++
-		db.dirty = true
-	}
-	if db.dirty {
-		saveLocked()
-	}
-	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
-}
-
-func handleStats(w http.ResponseWriter, r *http.Request) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	if db.dirty {
-		saveLocked()
-	}
-	now := time.Now().UnixMilli()
-	active7, active30 := int64(0), int64(0)
-	versions := map[string]int64{}
-	countries := map[string]int64{}
-	for _, in := range db.installs {
-		if now-in.LastSeen <= 7*24*3600*1000 {
-			active7++
-		}
-		if now-in.LastSeen <= 30*24*3600*1000 {
-			active30++
-		}
-		if in.Version != "" {
-			versions[in.Version]++
-		}
-		if in.Country != "" {
-			countries[in.Country]++
-		}
-	}
-	writeJSON(w, map[string]any{
-		"totalInstalls": len(db.installs),
-		"active7d":      active7,
-		"active30d":     active30,
-		"versions":      versions,
-		"countries":     countries,
-		"generatedAt":   now,
-	})
-}
-
-// handleInstalls lists every install (the dashboard table + /api consumers).
-func handleInstalls(w http.ResponseWriter, r *http.Request) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	if db.dirty {
-		saveLocked()
-	}
-	out := make([]Install, 0, len(db.installs))
-	for _, in := range db.installs {
-		out = append(out, *in)
-	}
-	writeJSON(w, out)
-}
-
-// --- dashboard ----------------------------------------------------------------
-
-var dashboardToken = os.Getenv("ZENSTATS_TOKEN")
-
-func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	if dashboardToken != "" && r.URL.Query().Get("token") != dashboardToken {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	w.Header().Set("content-type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(dashboardHTML()))
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func dashboardHTML() string { return dashHTML }
-
-const dashHTML = `<!doctype html>
+new_block = """const dashHTML = `<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <title>Zen Gate · 用户总览</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -301,4 +107,8 @@ const refresh = () => {
 refresh();
 setInterval(refresh, 30000);
 </script></body></html>
-`
+"""
+
+src = src[:m.start()] + new_block + src[m.end():]
+open(p, 'w', encoding='utf-8', newline='\n').write(src)
+print('dashboard rewritten')
