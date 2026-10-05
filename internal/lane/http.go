@@ -411,6 +411,10 @@ func usageFromBody(m map[string]any) *Usage {
 	return mapUsage(m)
 }
 
+// ParseUsage normalizes one wire frame's usage block; the relay package uses
+// it so provider calls account tokens exactly like free-lane calls do.
+func ParseUsage(frame map[string]any) *Usage { return mapUsage(frame) }
+
 // mapUsage normalizes one usage frame; returns nil when nothing is present.
 func mapUsage(frame map[string]any) *Usage {
 	u := &Usage{}

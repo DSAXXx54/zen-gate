@@ -1,0 +1,12 @@
+{
+  "announcements": [
+    {
+      "id": "2026-10-05-v1.3.0-release",
+      "title": "v1.3.0 发布：自定义 API 接入 + 模型选择管理",
+      "body": "本次更新带来：\n1. 「自定义 API」页——接入你自己的上游（OpenAI / Anthropic 兼容），内置 NVIDIA NIM、Gemini、魔搭等 13 个免费商预设，拉取模型后可勾选哪些入库；\n2. 「模型」页每张卡片新增「选用」开关——勾选的模型才会出现在 Agent 的选择器里，支持一键隐藏全部不可用；\n3. 自定义模型支持手动探测可用性与首字延迟；\n4. 新增公告系统（你正在看的这个）。",
+      "level": "info",
+      "start": "2026-10-05",
+      "url": "https://github.com/LAGcomcom/zen-gate/releases/latest"
+    }
+  ]
+}

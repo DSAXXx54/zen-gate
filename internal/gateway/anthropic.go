@@ -176,6 +176,17 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	for _, t := range req.Tools {
 		tools = append(tools, lane.ToolDef{Name: t.Name, Description: t.Description, Parameters: string(t.InputSchema)})
 	}
+	// Namespaced model id → user-added provider (openai-protocol providers get
+	// the messages converted to their chat wire).
+	if p, upstream, ok := s.providerRoute(req.Model); ok {
+		if !p.Enabled {
+			writeJSON(w, 400, map[string]any{"type": "error", "error": map[string]any{
+				"type": "invalid_request_error", "message": "自定义供应商 " + p.Name + " 已停用，请到「自定义 API」开启"}})
+			return
+		}
+		s.relayAnthropicMessages(w, r, req, p, upstream, agent, unified, tools)
+		return
+	}
 	ctx := r.Context()
 	st := &anthropicStreamState{blockMap: map[int]int{}}
 

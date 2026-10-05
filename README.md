@@ -30,8 +30,12 @@ OpenCode Zen 提供了一批**免登录、免计费**的模型车道，但它们
 <div align="center"><img src="docs/screenshot-home.png" width="820" alt="Zen Gate 总览"></div>
 
 - **全自动适配**：检测到 ZCode / OpenCode / Codex / Claude Code / DeepSeek Harness /
-  Crush / ChatBox / Aider / Qwen Code / Continue 后，一键注入配置（先备份，关闭即还原），
-  重启对应 Agent 就能在模型选择器里看到免费模型；
+  Crush / ChatBox / Aider / Qwen Code / Continue / WorkBuddy 后，一键注入配置（先备份，关闭即还原），
+  重启对应 Agent 就能在模型选择器里看到免费模型（WorkBuddy 无需重启，保存后自动热加载）；
+- **自定义 API 接入**：免费车道之外，可添加任意 OpenAI / Anthropic 兼容上游——
+  内置 NVIDIA NIM、Google Gemini、GitHub Models、Groq、Cerebras、Mistral、OpenRouter、
+  HuggingFace、硅基流动、魔搭、智谱、LongCat 等 13 个免费商预设一键填充，
+  填上自己的 Key 后自动检索模型列表，模型以 `供应商ID/模型名` 出现在所有 Agent 选择器里；
 - **协议完整移植**：会话铸造、指纹门、三种线协议（chat / responses / messages）、
   纯思考断流恢复——全部来自 MIT 协议层参考实现 dsh-our-free-model；
 - **单模型体检**：每个模型可单独探测可用性与首字延迟，探测历史持久化、跨重启可查。
@@ -41,6 +45,8 @@ OpenCode Zen 提供了一批**免登录、免计费**的模型车道，但它们
 | | |
 |---|---|
 | 🔄 **限流自动切换** | 模型被限流时自动换下一个可用模型接住请求，响应头标注实际模型 |
+| 📢 **公告系统** | 编辑仓库根目录 `announcements.json` 即向所有用户发公告（info/warn/critical 分级、生效时段、已读跟踪），总览页每 6 小时同步 |
+| 🔌 **自定义 API** | 免费商预设一键填充 + 自动检索模型列表，自己的 Key 自己填，用量照常入账 |
 | 📊 **额度测算** | 无官方余额 API 也能估：限额时段追踪 + 恢复时间预估 + 日额度进度条 |
 | ⏱ **首字历史** | 每次探测的首字延迟入样本环，重启不丢，模型页直接看平均首字 |
 | 🌡 **GitHub 式热力图** | 365 天用量热力图 + 多模型趋势折线 + 每 / 周 / 累计三种视图 |

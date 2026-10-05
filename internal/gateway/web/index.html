@@ -173,6 +173,9 @@
   .switch .nm { font-weight:600; }
   .switch .ds { color:var(--ink-mute); font-size:12px; margin-top:2px; }
   .warnline { color:var(--warn); font-size:12px; margin-top:3px; }
+  .annitem { background:var(--panel-2); border-radius:var(--r-md); padding:8px 12px; margin-top:6px; }
+  .ann-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px;
+    vertical-align:1px; }
   .statgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
   .stat { background:var(--panel-2); border-radius:var(--r-md); padding:10px 14px; }
   .stat .v { font-family:var(--mono); font-size:18px; color:var(--ink); font-weight:600; }
@@ -185,15 +188,26 @@
   /* ---- model cards ---- */
   .mgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(265px,1fr)); gap:10px; }
   .mcard { background:var(--panel); box-shadow:var(--card-shadow); border:1px solid var(--hairline);
-    border-top:2px solid var(--hairline); border-radius:var(--r-lg); padding:12px 14px;
+    border-top:2px solid var(--hairline); border-radius:var(--r-lg); padding:12px 14px 10px;
     display:flex; flex-direction:column; gap:6px; transition:border-color .12s ease; }
   .mcard:hover { border-color:var(--accent); }
   .mcard.st-available { border-top-color:var(--ok); }
+  .mcard.st-custom { border-top-color:var(--accent); }
   .mcard.st-throttled, .mcard.st-region-blocked { border-top-color:var(--warn); }
   .mcard.st-unavailable { border-top-color:var(--bad); }
-  .mcard .mhead { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-  .mcard .mops { display:flex; align-items:center; gap:6px; }
+  .mcard.st-hidden { border-top-color:var(--hairline); }
+  .mcard.dimmed { opacity:.5; }
+  .pill.custom { background:var(--accent-soft); color:var(--accent); }
+  .pill.hidsync { background:var(--panel-2); color:var(--ink-mute); }
+  .mcard .mhead { display:flex; align-items:center; gap:8px; min-width:0; }
+  .mcard .mhead .mname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mcard .mfoot { display:flex; justify-content:space-between; align-items:center; gap:8px;
+    border-top:1px dashed var(--hairline-soft); padding-top:8px; margin-top:auto; }
   .mcard .mtest { font-size:11px; padding:2px 9px; flex:none; }
+  .mcard .vispick { display:inline-flex; align-items:center; gap:5px; font-size:11.5px;
+    color:var(--ink-dim); cursor:pointer; flex:none; user-select:none; }
+  .mcard .vispick input { accent-color:var(--accent); margin:0; cursor:pointer; }
+  .mcard .vispick:hover { color:var(--ink); }
   .mcard .mname { font-weight:600; }
   .mcard .mid { color:var(--ink-mute); font-size:11px; user-select:all; word-break:break-all; }
   .mcard .mmeta { display:flex; gap:12px; font-size:11.5px; color:var(--ink-mute); flex-wrap:wrap; }
@@ -215,6 +229,106 @@
   .mcard .qtext.warn2 { color:var(--warn, #fbbf24); }
   .mcard .mdetail { font-size:11.5px; color:var(--ink-mute); border-top:1px dashed var(--hairline-soft); padding-top:6px; word-break:break-all; }
 
+  /* ---- agent cards ---- */
+  .agrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
+  .acard { background:var(--panel); box-shadow:var(--card-shadow); border:1px solid var(--hairline);
+    border-top:2px solid var(--hairline); border-radius:var(--r-lg); padding:12px 14px;
+    display:flex; flex-direction:column; gap:8px; transition:border-color .12s ease; }
+  .acard:hover { border-color:var(--accent); }
+  .acard.st-on { border-top-color:var(--ok); }
+  .acard.st-noinst { opacity:.55; }
+  .acard .ahead { display:flex; align-items:center; gap:10px; }
+  .acard .aicon { width:34px; height:34px; flex:none; display:flex; align-items:center; justify-content:center;
+    background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:var(--r-md); color:var(--ink-dim); }
+  .acard .aicon svg { width:17px; height:17px; display:block; }
+  .acard .aicon.lg-wide svg { width:auto; height:10px; }
+  .acard .aicon.lg-neutral svg { color:#171717; }
+  :root[data-theme="dark"] .acard .aicon.lg-neutral svg { color:#fafafa; }
+  .acard.st-on .aicon { color:var(--accent); background:var(--accent-soft); border-color:transparent; }
+  .acard .att { min-width:0; }
+  .acard .aname { font-weight:600; font-size:13.5px; line-height:1.3; }
+  .acard .aver { font-size:11px; color:var(--ink-mute); font-family:var(--mono); margin-top:1px; }
+  .acard .ads { font-size:11.5px; line-height:1.55; color:var(--ink-mute); flex:1; }
+  .acard .afoot { display:flex; justify-content:space-between; align-items:center; gap:10px;
+    border-top:1px dashed var(--hairline-soft); padding-top:9px; margin-top:auto; }
+  /* 拨动开关：40×22 胶囊轨道，::after 为滑块 */
+  .tgl { position:relative; width:40px; height:22px; flex:none; border-radius:999px; cursor:pointer;
+    background:var(--panel-2); border:1px solid var(--hairline); padding:0;
+    transition:background-color .15s ease, border-color .15s ease; }
+  .tgl::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%;
+    background:var(--ink-mute); transition:transform .15s ease, background-color .15s ease; }
+  .tgl:hover { border-color:var(--accent); }
+  .tgl.on { background:var(--accent); border-color:var(--accent); }
+  .tgl.on::after { transform:translateX(18px); background:#fff; }
+  .tgl:disabled { opacity:.4; cursor:not-allowed; }
+  .tgl:disabled:hover { border-color:var(--hairline); }
+  .tgl:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  /* ---- 自定义 API providers ---- */
+  input.tin { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ink);
+    border-radius:var(--r-sm); padding:6px 9px; font-family:var(--mono); font-size:12.5px; }
+  input.tin:focus { border-color:var(--accent); outline:none; }
+  input.tin::placeholder { color:var(--ink-mute); }
+  .pchips { display:flex; flex-wrap:wrap; gap:8px; }
+  .pchip { display:flex; flex-direction:column; align-items:flex-start; gap:1px; background:var(--panel-2);
+    border:1px solid var(--hairline); border-radius:var(--r-md); padding:7px 12px; cursor:pointer; }
+  .pchip:hover { border-color:var(--accent); }
+  .pchip .pn { font-size:12.5px; font-weight:600; color:var(--ink); }
+  .pchip .pu { font-size:10.5px; color:var(--ink-mute); font-family:var(--mono); }
+  .pmodels { display:flex; flex-wrap:wrap; gap:4px; min-width:0; }
+  .pmodels .pm { font-size:11px; font-family:var(--mono); color:var(--ink-dim);
+    background:var(--panel-2); border-radius:5px; padding:1px 7px; user-select:all; }
+  .pform .frow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:9px; }
+  .pform .frow .flbl { width:76px; flex:none; font-size:12.5px; color:var(--ink-dim); }
+
+  /* 模型挑选列表（拉取后勾选哪些入库） */
+  .pv-pickhead { display:flex; align-items:center; justify-content:space-between; gap:10px;
+    flex-wrap:wrap; margin-top:4px; }
+  .pv-picklist { max-height:216px; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+    gap:1px 12px; border:1px solid var(--hairline-soft); border-radius:var(--r-md);
+    background:var(--panel-2); padding:8px 10px; margin-top:8px; }
+  .pv-picklist label { display:flex; gap:7px; align-items:center; font-size:11.5px; font-family:var(--mono);
+    color:var(--ink-dim); cursor:pointer; padding:2.5px 4px; border-radius:4px; min-width:0; }
+  .pv-picklist label:hover { background:var(--panel); color:var(--ink); }
+  .pv-picklist label span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pv-picklist input[type=checkbox] { accent-color:var(--accent); flex:none; margin:0; }
+  .pv-picklist .pv-empty { grid-column:1/-1; font-size:12px; color:var(--ink-mute); padding:6px 4px; }
+
+  /* 供应商卡片 */
+  .pgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:10px; }
+  .pvcard { background:var(--panel); box-shadow:var(--card-shadow); border:1px solid var(--hairline);
+    border-radius:var(--r-lg); padding:13px 15px 11px; display:flex; flex-direction:column; gap:9px;
+    position:relative; overflow:hidden; transition:border-color .12s ease; }
+  .pvcard:hover { border-color:var(--accent); }
+  .pvcard::before { content:""; position:absolute; left:0; right:0; top:0; height:2px;
+    background:linear-gradient(90deg, var(--accent), transparent 72%); }
+  .pvcard.off::before { background:var(--hairline); }
+  .pvcard.off .pvn, .pvcard.off .pvmrow { opacity:.5; }
+  .pvhead { display:flex; align-items:center; gap:10px; }
+  .pvdot { width:8px; height:8px; border-radius:50%; background:var(--ink-mute); flex:none; }
+  .pvdot.on { background:var(--ok); box-shadow:0 0 0 3px var(--ok-bg); }
+  .pvt { min-width:0; flex:1; }
+  .pvn { font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:7px; min-width:0; }
+  .pvn .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pvpill { flex:none; font-size:10px; font-weight:500; color:var(--accent); background:var(--accent-soft);
+    border-radius:999px; padding:0 8px; line-height:16px; letter-spacing:.04em; }
+  .pvu { font-size:11px; color:var(--ink-mute); margin-top:1px; display:flex; gap:6px; align-items:center; min-width:0; }
+  .pvu .u { font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pvu .sep { opacity:.5; flex:none; }
+  .pvu .k { flex:none; font-family:var(--mono); }
+  .pvmrow { display:flex; gap:8px; align-items:flex-start; min-height:22px; }
+  .pvcount { flex:none; font-size:11px; color:var(--ink-dim); background:var(--panel-2); border-radius:5px;
+    padding:2px 8px; margin-top:1px; font-variant-numeric:tabular-nums; }
+  .pvfoot { display:flex; justify-content:space-between; align-items:center; gap:10px;
+    border-top:1px dashed var(--hairline-soft); padding-top:8px; }
+  .pvfoot .u { font-size:10.5px; color:var(--ink-mute); font-family:var(--mono);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pvops { display:flex; gap:1px; flex:none; }
+  .pvops button { background:none; border:0; color:var(--ink-mute); font-size:12px; cursor:pointer;
+    border-radius:5px; padding:3px 8px; white-space:nowrap; }
+  .pvops button:hover { background:var(--panel-2); color:var(--ink); }
+  .pvops button.danger:hover { background:var(--bad-bg); color:var(--bad); }
+
   /* ---- usage dashboard (ZCode style) ---- */
   .two { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:12px; }
   .sumstrip { display:flex; overflow:hidden; border-radius:var(--r-lg);
@@ -234,7 +348,6 @@
     background:var(--panel-2); border:1px solid transparent; border-radius:999px; padding:2px 9px; cursor:pointer; }
   .chip.on { border-color:var(--accent); color:var(--ink); }
   .chip .dotc { width:8px; height:8px; border-radius:50%; }
-  .svgwrap svg { width:100%; height:auto; display:block; }
 
   /* heatmap */
   .hm-scroll { overflow-x:auto; padding-bottom:2px; }
@@ -251,14 +364,10 @@
   .hm-level1 { background:var(--hm1); } .hm-level2 { background:var(--hm2); }
   .hm-level3 { background:var(--hm3); } .hm-level4 { background:var(--hm4); border-color:transparent; }
   .hm-cell.has { border-color:var(--hairline); }
-  #hm-tip, #trend-tip { position:fixed; z-index:60; background:var(--panel); border:1px solid var(--hairline);
+  #hm-tip { position:fixed; z-index:60; background:var(--panel); border:1px solid var(--hairline);
     border-radius:var(--r-sm); padding:5px 9px; font-size:11.5px; color:var(--ink); pointer-events:none;
     display:none; box-shadow:0 4px 12px rgba(0,0,0,.18); white-space:nowrap; }
-  #trend-tip { min-width:130px; }
-  #hm-tip .tt-date, #trend-tip .tt-date { font-weight:600; margin-bottom:4px; }
-  #trend-tip .tt-row { display:flex; align-items:center; gap:6px; line-height:1.6; }
-  #trend-tip .tt-row i { width:8px; height:8px; border-radius:50%; display:inline-block; flex:none; }
-  #trend-tip .tt-row b { margin-left:auto; padding-left:14px; font-variant-numeric:tabular-nums; }
+  #hm-tip .tt-date { font-weight:600; margin-bottom:4px; }
   .speedgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .barwrap { position:relative; background:var(--panel-2); border-radius:4px; height:8px; width:100%; min-width:80px; overflow:hidden; }
   .barwrap .bar { position:absolute; top:0; bottom:0; left:0; background:var(--accent); border-radius:4px; }
@@ -311,6 +420,7 @@
       <div class="page" id="page-dash"></div>
       <div class="page" id="page-agents"></div>
       <div class="page" id="page-models"></div>
+      <div class="page" id="page-providers"></div>
       <div class="page" id="page-access"></div>
       <div class="page" id="page-usage"></div>
       <div class="page" id="page-logs"></div>
@@ -323,7 +433,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const PAGES = [["dash","总览","dash"],["agents","Agent 适配","agents"],["models","模型","models"],["access","接入","access"],["usage","用量","usage"],["logs","日志","logs"],["settings","设置","settings"]];
+const PAGES = [["dash","总览","dash"],["agents","Agent 适配","agents"],["models","模型","models"],["providers","自定义 API","providers"],["access","接入","access"],["usage","用量","usage"],["logs","日志","logs"],["settings","设置","settings"]];
 let cur = localStorage.getItem("zengate.page") || "dash";
 if (!PAGES.some(p=>p[0]===cur)) cur = "dash";
 let STATE = null;
@@ -340,8 +450,8 @@ async function api(path,body){
   if(!r.ok || j.ok===false){ toast(j.error||("失败("+r.status+")")); return null; }
   return j;
 }
-function statePill(st){ const c={available:"ok",unknown:"unknown","region-blocked":"warn",throttled:"warn",unavailable:"bad"}[st]||"unknown";
-  const t={available:"可用",unknown:"未探测","region-blocked":"地区受限",throttled:"已限额",unavailable:"不可用"}[st]||st;
+function statePill(st){ const c={available:"ok",unknown:"unknown","region-blocked":"warn",throttled:"warn",unavailable:"bad",custom:"custom"}[st]||"unknown";
+  const t={available:"可用",unknown:"未探测","region-blocked":"地区受限",throttled:"已限额",unavailable:"不可用",custom:"自定义"}[st]||st;
   return `<span class="pill ${c}">${t}</span>`; }
 const cssVar = (n,f) => (getComputedStyle(document.documentElement).getPropertyValue(n)||f).trim();
 
@@ -357,6 +467,40 @@ const ICONS = {
   settings: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   chevLeft: '<path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>',
   chevRight: '<path d="m13 17 5-5-5-5"/><path d="m6 17 5-5-5-5"/>',
+  terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/>',
+  waves: '<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+  messageSquare: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  squareTerminal: '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  rotateCw: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+  providers: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/><circle cx="12" cy="4" r="1"/>',
+};
+
+/* Agent id → 卡片图标（ICONS 里的 key），未知 id 回退到插头图标 */
+const AGENT_ICONS = {
+  zcode:"terminal", opencode:"code", codex:"bot", claude:"sparkles", dsh:"waves",
+  crush:"heart", chatbox:"messageSquare", aider:"squareTerminal", qwen:"cloud", continue:"rotateCw",
+  workbuddy:"briefcase",
+};
+
+/* 各 Agent 官方品牌 logo（内嵌 SVG） */
+const BRAND_LOGOS = {
+  zcode: { svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30"><path fill="#2D2D2D" stroke="#FFFFFF" stroke-width="0.6317" d="M24.51,28.51H5.49c-2.21,0-4-1.79-4-4V5.49c0-2.21,1.79-4,4-4h19.03c2.21,0,4,1.79,4,4v19.03 C28.51,26.72,26.72,28.51,24.51,28.51z"/><g fill="#FFFFFF"><path d="M15.47,7.1l-1.3,1.85c-0.2,0.29-0.54,0.47-0.9,0.47h-7.1V7.09C6.16,7.1,15.47,7.1,15.47,7.1z"/><polygon points="24.3,7.1 13.14,22.91 5.7,22.91 16.86,7.1 "/><path d="M14.53,22.91l1.31-1.86c0.2-0.29,0.54-0.47,0.9-0.47h7.09v2.33H14.53z"/></g></svg>`, neutral:false, wide:false },
+  opencode: { svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#131010"></rect> <path d="M320 224V352H192V224H320Z" fill="#5A5858"></path> <path fill-rule="evenodd" clip-rule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z" fill="#FFFFFF"></path></svg>`, neutral:false, wide:false },
+  codex: { svg:`<svg fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>OpenAI</title><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>`, neutral:true, wide:false },
+  claude: { svg:`<svg fill="#D97757" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Claude</title><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>`, neutral:false, wide:false },
+  dsh: { svg:`<svg fill="#5786FE" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>DeepSeek</title><path d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45"/></svg>`, neutral:false, wide:false },
+  crush: { svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 15"><path fill="#AC3EC4" d="M11 4h1v1h-1zM6 5h1v1h-1zM12 7h1v1h-1zM12 8h1v1h-1zM10 9h1v1h-1zM0 10h2v1h-2zM9 10h1v1h-1zM7 11h1v1h-1z"/><path fill="#F858F5" d="M8 4h3v1h-3zM2 5h4v1h-4zM7 5h4v1h-4zM1 6h11v1h-11zM1 7h11v1h-11zM1 8h3v1h-3zM5 8h2v1h-2zM8 8h2v1h-2zM11 8h1v1h-1zM2 9h2v1h-2zM8 9h1v1h-1zM3 10h2v1h-2zM6 10h3v1h-3z"/><path fill="#9330A5" d="M11 9h2v1h-2zM10 10h1v1h-1zM9 11h1v1h-1zM3 12h6v1h-6zM4 13h1v1h-1z"/><path fill="#CA4EDE" d="M2 4h3v1h-3zM7 4h1v1h-1zM1 5h1v1h-1zM11 5h2v1h-2zM0 6h1v1h-1zM12 6h1v1h-1zM0 7h1v1h-1zM0 8h1v1h-1zM10 8h1v1h-1zM0 9h2v1h-2zM4 9h4v1h-4zM9 9h1v1h-1zM2 10h1v1h-1zM5 10h1v1h-1zM4 11h3v1h-3z"/><path fill="#9B33AF" d="M11 10h1v1h-1zM1 11h3v1h-3zM11 11h1v1h-1zM2 12h1v1h-1zM3 13h1v1h-1zM5 13h2v1h-2zM5 14h3v1h-3z"/></svg>`, neutral:false, wide:false },
+  chatbox: { svg:`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M17.0674 3.26367L17.0674 2.26367H17.0674V3.26367ZM17.0674 18.0566V19.0566H17.0674L17.0674 18.0566ZM7.66211 18.0566V17.0566C7.42949 17.0566 7.20415 17.1377 7.02487 17.286L7.66211 18.0566ZM4.41895 20.7383H3.41895C3.41895 21.1256 3.64261 21.4781 3.99306 21.6431C4.3435 21.808 4.75768 21.7558 5.05618 21.509L4.41895 20.7383ZM4.41895 17.165H5.41895C5.41895 16.8637 5.28308 16.5785 5.04912 16.3886L4.41895 17.165ZM6.93359 3.26367V2.26367H6.93357L6.93359 3.26367ZM17.0674 3.26367L17.0674 4.26367C18.721 4.26372 20.0615 5.6042 20.0615 7.25781H21.0615H22.0615C22.0615 4.49957 19.8256 2.26375 17.0674 2.26367L17.0674 3.26367ZM21.0615 7.25781H20.0615V14.0625H21.0615H22.0615V7.25781H21.0615ZM21.0615 14.0625H20.0615C20.0615 15.7161 18.721 17.0566 17.0674 17.0566L17.0674 18.0566L17.0674 19.0566C19.8256 19.0566 22.0615 16.8207 22.0615 14.0625H21.0615ZM17.0674 18.0566V17.0566H7.66211V18.0566V19.0566H17.0674V18.0566ZM7.66211 18.0566L7.02487 17.286L3.78171 19.9676L4.41895 20.7383L5.05618 21.509L8.29934 18.8273L7.66211 18.0566ZM4.41895 20.7383H5.41895V17.165H4.41895H3.41895V20.7383H4.41895ZM4.41895 17.165L5.04912 16.3886C4.37038 15.8377 3.93945 15.0007 3.93945 14.0625H2.93945H1.93945C1.93945 15.6296 2.66288 17.0277 3.78877 17.9415L4.41895 17.165ZM2.93945 14.0625H3.93945V7.25781H2.93945H1.93945V14.0625H2.93945ZM2.93945 7.25781H3.93945C3.93945 5.6042 5.27994 4.26372 6.93362 4.26367L6.93359 3.26367L6.93357 2.26367C4.17542 2.26375 1.93945 4.49957 1.93945 7.25781H2.93945ZM6.93359 3.26367V4.26367H17.0674V3.26367V2.26367H6.93359V3.26367Z" fill="#228BE6"/> <path d="M9.13379 9.29883C9.83353 9.29883 10.4014 9.86667 10.4014 10.5664C10.4012 11.266 9.83346 11.833 9.13379 11.833C8.43421 11.8329 7.86731 11.266 7.86719 10.5664C7.86719 9.86673 8.43414 9.29893 9.13379 9.29883ZM14.8662 9.29883C15.566 9.29883 16.1338 9.86667 16.1338 10.5664C16.1337 11.266 15.5659 11.833 14.8662 11.833C14.1666 11.8329 13.5997 11.266 13.5996 10.5664C13.5996 9.86673 14.1666 9.29893 14.8662 9.29883Z" fill="#228BE6"/> </svg>`, neutral:false, wide:false },
+  aider: { svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><style>@font-face{font-family:G;src:url(data:font/woff2;base64,AAEAAAAKAIAAAwAgT1MvMlazYLcAAAEoAAAAVmNtYXAA/gE1AAABkAAAAExnYXNwAC8ABwAABiAAAAAMZ2x5Zs9YpfUAAAHsAAAEFGhlYWTupA6bAAAArAAAADZoaGVhBQwBxAAAAOQAAAAkaG10eAH0AFMAAAGAAAAADmxvY2ED2AKwAAAB3AAAAA5tYXhwABMAcQAAAQgAAAAgcG9zdP+XABQAAAYAAAAAIAABAAAAAUzMa9pTUl8PPPUACwPoAAAAAMb6vv4AAAAAxvq+/gAAADIBkAK8AAAACAACAAAAAAAAAAEAAAMg/2oAWgH0AAAAZAGQAAEAAAAAAAAAAAAAAAAAAAABAAEAAAAGAHAADAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAQH0AfQABQAAAooCvAAAAIwCigK8AAAB4AAxAQIAAAIABgkAAAAAAAAAAAABAAAAAAAAAAAAAAAAUGZFZABAAGEAcgMg/zgAWgMgAJYAAAABAAAAAAAAAfQAIQAAAAAAAAAyAAAAAAAAAAIAAAADAAAAFAADAAEAAAAUAAQAOAAAAAoACAACAAIAYQBlAGkAcv//AAAAYQBkAGkAcv///6D/nv+b/5MAAQAAAAAAAAAAAAAAAAAAAGsA+gFjAbYCCgAAAAYAAAAyAZAB9AAPABkAIQAxADkASQAANzQ3NjMyFxYVFAcGIyInJjY0NjMyFhQGIyIkNDYyFhQGIjc0NzYzMhcWFRQHBiMiJyY2NDYyFhQGIiU0NzYzMhcWFRQHBiMiJyYyDxaKlxAIDxaKlxAIyBoxMhkZMjH+7BM+ExM+Hw8WipcQCA8WipcQCPoTPhMTPv7zDxN0gQ4HDxN0gQ4HSw8EBgkEDA8EBgkEXyIICCIICSAJCSAJfQ8EBgkEDA8EBgkEYCAJCSAJfRAEBQkEDBAEBQkEAAAKAAAAMgGQArwADwAZACEAKQAxADsAQwBTAFsAYwAANzQ3NjMyFxYVFAcGIyInJjY0NjMyFhQGIyIkNDYyFhQGIiQ0NjIWFAYiJDQ2MhYUBiI2NDYzMhYUBiMiJDQ2MhYUBiI3NDc2MzIXFhUUBwYjIicmNjQ2MhYUBiImNDYyFhQGIjIPFoqXEAgPFoqXEAjIGjEyGRkyMf7sEz4TEz4BGRM+ExM+/sETPhMTPucaMTIZGTIx/uwTPhMTPh8PFoqXEAgPFoqXEAj6Ez4TEz4TEz4TEz5LDwQGCQQMDwQGCQRfIggIIggJIAkJIAltIAkJIAkJIAkJIAlsIggIIggJIAkJIAl9DwQGCQQMDwQGCQRgIAkJIAltIAkJIAkABgAAADIBkAH0AA8AFwAnAC8ANwBHAAA3NDc2MzIXFhUUBwYjIicmJjQ2MhYUBiInNDc2MzIXFhUUBwYjIicmJDQ2MhYUBiIkNDYyFhQGIjc0NzYzMhcWFRQHBiMiJyYyDxN0gQ4HDxN0gQ4HMhM+ExM+Ew8Yoa0SCQ8Yoa0SCQEsEz4TEz7+wRM+ExM+Hw8TdIEOBw8TdIEOB0sQBAUJBAwQBAUJBGAgCQkgCX0PBAYJBAwPBAYJBGAgCQkgCQkgCQkgCX0QBAUJBAwQBAUJBAAABgAyADIBXgK8AA8AFwAfACcALwA3AAA3NDc2MzIXFhUUBwYjIicmNjQ2MhYUBiImNDYyFhQGIiY0NjIWFAYiJjQ2MhYUBiI2NDYyFhQGIjIPE3SBDgcPE3SBDgdkEz4TEz4TEz4TEz4TEz4TEz5FGmIaGmIYEz4TEz5LEAQFCQQMEAQFCQRgIAkJIAltIAkJIAltIAkJIAlsIggIIgjRIAkJIAkAAAcAAAAyAZAB9AAHAA8AFwAfACcALwA3AAA2NDYyFhQGIiY0NjIWFAYiJjQ2MhYUBiI2NDYyFhQGIiQ0NjIWFAYiNjQ2MhYUBiImNDYyFhQGIjITPhMTPhMTPhMTPhMTPhMTPucTPhMTPv7zGmIaGmJKIIggIIi2Ez4TEz47IAkJIAltIAkJIAltIAkJIAltIAkJIAkIIggIIghsIggIIggJIAkJIAkAAAMAAAAAAAD/lAATAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACADAAA///AAI=) format("woff2")}text{font-family:G,monospace;font-size:60px;fill:#14B014;text-anchor:middle;dominant-baseline:middle;filter:url(#g)}</style><defs><filter id="g" x="-40%" y="-30%" width="180%" height="160%"><feGaussianBlur stdDeviation="7 1" result="b"/><feColorMatrix in="b" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0.5 0" result="l"/><feComposite in="SourceGraphic" in2="l" operator="over"/></filter></defs><text x="100" y="37.2">aider</text></svg>`, neutral:false, wide:true },
+  qwen: { svg:`<svg fill="#6950EF" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>QWen</title><path d="M23.919 14.545 20.817 9.17l1.47-2.544a.56.56 0 0 0 0-.566l-1.633-2.83a.57.57 0 0 0-.49-.283h-6.207L12.487.402a.57.57 0 0 0-.49-.284H8.732a.56.56 0 0 0-.49.284L5.139 5.775h-2.94a.56.56 0 0 0-.49.284L.077 8.887a.56.56 0 0 0 0 .567L3.18 14.83l-1.47 2.545a.56.56 0 0 0 0 .566l1.634 2.83a.57.57 0 0 0 .49.283h6.205l1.47 2.545a.57.57 0 0 0 .49.284h3.266a.57.57 0 0 0 .49-.284l3.104-5.375h2.94a.57.57 0 0 0 .49-.283l1.634-2.828a.55.55 0 0 0-.004-.568M8.733.686l1.634 2.828-1.634 2.828H21.8L20.164 9.17H7.425L5.63 6.06Zm1.306 19.801-6.205-.002 1.634-2.83h3.265L2.201 6.344h3.267q3.182 5.517 6.367 11.032zm10.124-5.66L18.53 12l-6.532 11.315-1.634-2.83c2.129-3.673 4.25-7.351 6.373-11.028h3.592l3.102 5.374z"/></svg>`, neutral:false, wide:false },
+  continue: { svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="28 29 51 47" fill="currentColor"><path d="M68.6,34.7l-2.7,4.7l6.8,11.9c0.1,0.1,0.1,0.2,0.1,0.3s0,0.2-0.1,0.3l-6.8,11.9l2.7,4.7l9.7-16.9L68.6,34.7 L68.6,34.7z M64.9,38.8l2.7-4.7h-5.4l-2.7,4.7H64.9L64.9,38.8z M59.4,40l6.3,11h5.4l-6.3-11H59.4z M64.9,63.1l6.3-11h-5.4l-6.3,11 H64.9z M59.4,64.4l2.7,4.7h5.4l-2.7-4.7H59.4L59.4,64.4z M41.1,70.2c-0.1,0-0.2,0-0.3-0.1s-0.2-0.1-0.2-0.2L33.7,58h-5.4L38,74.9 h19.5l-2.7-4.7H41.1L41.1,70.2z M55.8,69.6l2.7,4.7l2.7-4.7l-2.7-4.7L55.8,69.6L55.8,69.6z M57.5,64.3H44.8L42.1,69h12.6L57.5,64.3z M43.8,63.7l-6.3-11l-2.7,4.7l6.3,11C41.1,68.4,43.8,63.7,43.8,63.7z M28.3,56.8h5.4l2.7-4.7H31C31,52.1,28.3,56.8,28.3,56.8z M40.5,33.3c0-0.1,0.1-0.2,0.2-0.2c0.1,0,0.2-0.1,0.3-0.1h13.7l2.7-4.7H38l-9.7,16.9h5.4L40.5,33.3L40.5,33.3z M36.4,51.1l-2.7-4.7 h-5.4l2.7,4.7C31,51.1,36.4,51.1,36.4,51.1z M41,34.8l-6.3,11l2.7,4.7l6.3-11L41,34.8z M54.8,34.2H42.1l2.7,4.7h12.7L54.8,34.2z M58.5,38.3l2.7-4.7l-2.7-4.7l-2.7,4.7L58.5,38.3z"/> <path d="M176.5,42.5c-3.6,0-6.5,1.7-8.4,4.7h-0.5v-3.7h-4.4v26.7h4.4V54.6c0-4.7,3.9-8.1,8.4-8.1s7.3,3.3,7.3,7.8v16 h4.4v-16C187.6,47.5,183.3,42.5,176.5,42.5L176.5,42.5z"/> <path d="M144.5,42.4c-8.4,0-14.4,6-14.4,14.4s5.9,14.5,14.4,14.5s14.4-6,14.4-14.5S152.8,42.4,144.5,42.4z M144.5,67.3 c-5.8,0-10-4.4-10-10.5s4.1-10.4,10-10.4s9.9,4.4,9.9,10.4S150.2,67.3,144.5,67.3z"/> <path d="M122.1,58.7c-1.8,5-7,8.7-12.7,8.7c-8.4,0-14.5-6.6-14.5-15.8s6-15.7,14.5-15.7c5.9,0,11.2,3.9,12.8,9.3h4.9 c-1.8-7.8-9.3-13.6-17.7-13.6c-11.2,0-19.3,8.4-19.3,20c-0.1,11.6,8.1,20,19.3,20c8.4,0,15.8-5.4,17.6-12.9L122.1,58.7L122.1,58.7z" /> <path d="M199.5,63.2V47h6.9v-3.5h-6.9l0.1-8.6h-3.4l-1,8.6h-4.3V47h4.3v16.4c0,4.7,2.9,7.9,7.4,7.9 c1.3,0,3.1-0.3,4.3-0.7V67c-1,0.3-2.4,0.5-3.2,0.5C201.1,67.5,199.5,65.7,199.5,63.2L199.5,63.2z"/> <path d="M274.7,59.1c0,4.7-3.9,8.1-8.4,8.1s-7.2-3.2-7.2-7.8V43.5h-4.4v15.9c0,6.8,4.3,11.8,11.1,11.8 c3.5,0,6.5-1.7,8.4-4.6h0.5v3.7h4.4V43.5h-4.4L274.7,59.1L274.7,59.1z"/> <path d="M238.1,42.5c-3.6,0-6.5,1.7-8.4,4.7h-0.5v-3.7h-4.4v26.7h4.4V54.6c0-4.7,3.9-8.1,8.4-8.1s7.3,3.3,7.3,7.8v16 h4.4v-16C249.3,47.5,244.9,42.5,238.1,42.5L238.1,42.5z"/> <rect x="212.9" y="43.5" width="4.4" height="26.7"/> <path d="M311.7,56.6c0-8.2-5.9-14.1-14-14.1s-14.2,5.9-14.2,14.1c0,8.6,6,14.8,14.4,14.8c5.9,0,10.8-2.8,12.9-7.3 l-3.6-1.8c-1.7,3.2-5.2,5.2-9.2,5.2c-5.5,0-9.4-3.6-10-9h23.7C311.7,57.7,311.7,57.1,311.7,56.6z M288,54.5c0.7-4.8,4.5-8,9.4-8 s8.8,3.2,9.6,8H288L288,54.5z"/> <path d="M215.1,32.2c-1.9,0-3.2,1.3-3.2,3.1s1.3,3.2,3.2,3.2s3.1-1.3,3.1-3.2S216.9,32.2,215.1,32.2z"/></svg>`, neutral:true, wide:false },
+  workbuddy: { svg:`<svg fill="#6C4DFF" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>CodeBuddy</title><path d="M18.636.289a1 1 0 0 0-.11 0c-.18.01-.195.02-.442.24-.716.636-1.722 2.546-2.703 5.137l-.274.72-.499.16c-1.554.498-2.934 1.128-4.157 1.893-1.174.73-1.81 1.207-2.768 2.056l-.578.51-.262-.045c-2.528-.447-4.8-.612-5.843-.43-.414.077-.757.216-.862.35-.092.12-.138.263-.138.474 0 .182.034.414.098.727.265 1.236.952 2.854 2.035 4.78l.7 1.236-.023.466c-.027.499 0 1.27.06 1.793.036.319.031.327-.135.516-.565.647-.708 1.676-.408 2.84h5.364l-.33-.57c-.64-1.108-.96-1.663-1.134-2.177a5.46 5.46 0 0 1 1.564-5.84c.408-.358.962-.678 2.072-1.32l6.38-3.683c1.11-.64 1.665-.96 2.18-1.134A5.46 5.46 0 0 1 24 10.275V6.462l-.117-.06-.504-.25-.357-.662c-.924-1.702-2.41-3.696-3.477-4.666-.4-.364-.655-.517-.91-.535M11.57 17.634a1.26 1.26 0 0 1 1.722.462l1.358 2.35c.842 1.455-1.341 2.717-2.183 1.262l-1.358-2.352a1.26 1.26 0 0 1 .461-1.722m6.802-3.926a1.26 1.26 0 0 1 1.721.46l1.358 2.352c.84 1.455-1.343 2.715-2.183 1.26l-1.358-2.35a1.26 1.26 0 0 1 .462-1.722"/></svg>`, neutral:false, wide:false },
 };
 
 /* 分段控件滑动指示块：跟随选中的按钮平滑移动 */
@@ -381,7 +525,7 @@ function initSegs(){
 }
 window.addEventListener("resize", ()=> initSegs());
 
-const NAV_GROUPS = [["网关",0,4],["数据",4,6],["系统",6,7]];
+const NAV_GROUPS = [["网关",0,4],["数据",4,6],["系统",6,8]];
 function nav(){
   let html = "";
   for(const [title, from, to] of NAV_GROUPS){
@@ -420,14 +564,14 @@ function render(){ if(!STATE) return; const s=STATE;
   $("#side-models").textContent = s.models.filter(m=>m.state==="available").length + "/" + s.models.length;
   $("#side-ver").textContent = s.version || "";
   $("#egress-foot").textContent = s.egress&&s.egress.ip ? `${s.egress.ip} (${s.egress.country||"?"})` : "出口未知";
-  renderDash(s); renderAgents(s); renderModels(s); renderAccess(s); renderUsage(s); renderSettings(s);
+  renderDash(s); renderAgents(s); renderModels(s); renderProviders(s); renderAccess(s); renderUsage(s); renderSettings(s);
   if (cur === "logs") renderLogs();
   renderDashExtras(s);
 }
 
 /* ---- 总览 ---- */
 function renderDash(s){
-  const avail = s.models.filter(m=>m.state==="available").length;
+  const avail = s.models.filter(m=>m.state==="available" && !m.hidden).length;
   const on = s.agents.filter(a=>a.enabled).length;
   const todayKey = Object.keys(s.stats.days||{}).sort().pop();
   const day = todayKey ? s.stats.days[todayKey] : null;
@@ -436,11 +580,36 @@ function renderDash(s){
       <span>发现新版本 <b>${esc(s.settings.updateVersion)}</b>（当前 ${esc(s.version)}）</span>
       <span style="display:flex; gap:8px; align-items:center"><button class="act" id="upd-apply">一键更新</button><a href="${esc(s.settings.updateURL||"#")}" target="_blank" style="font-size:13px">发布页 →</a></span>
     </div>` : "";
+  // 公告：critical/warn/info 分级着色，未读高亮 + 可标记已读
+  const anns = s.announcements || [];
+  const annHtml = anns.length ? `
+    <div class="card" style="padding:12px 14px; margin-bottom:12px">
+      <div class="row" style="justify-content:space-between; margin-bottom:8px">
+        <h3 style="margin:0">公告 <span class="muted" style="font-size:11px">${anns.length} 条生效中</span></h3>
+        <span class="muted" style="font-size:11px">来源：作者发布 · 每 6 小时同步</span>
+      </div>
+      ${anns.slice(0,6).map(a=>{
+        const lv = {critical:"var(--bad)",warn:"var(--warn)",info:"var(--accent)"}[a.level]||"var(--accent)";
+        return `<div class="annitem" style="border-left:3px solid ${lv}; opacity:${a.unread?1:.72}">
+          <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap">
+            <span style="font-weight:600; font-size:13px">${a.unread?`<span class="ann-dot" style="background:${lv}"></span>`:""}${esc(a.title)}
+              ${a.level==="critical"?'<span class="pill bad">重要</span>':a.level==="warn"?'<span class="pill warn">注意</span>':""}
+              ${a.start?`<span class="muted" style="font-size:11px; margin-left:6px">${esc(a.start)}${a.end?" ~ "+esc(a.end):""}</span>`:""}
+            </span>
+            <span style="display:flex; gap:8px; align-items:center">
+              ${a.url?`<a href="${esc(a.url)}" target="_blank" style="font-size:12px; color:var(--accent)">详情 →</a>`:""}
+              ${a.unread?`<button class="ghost ann-read" data-id="${esc(a.id)}" style="padding:2px 10px; font-size:11.5px">知道了</button>`:""}
+            </span>
+          </div>
+          ${a.body?`<div class="muted" style="font-size:12px; margin-top:4px; white-space:pre-wrap">${esc(a.body)}</div>`:""}
+        </div>`;
+      }).join("")}
+    </div>` : "";
   const fail = day ? day.failed : 0;
   const failPill = fail > 0 ? ` <span class="pill bad">${fail} 失败</span>` : "";
 
   $("#page-dash").innerHTML = `
-    <h2 class="pt">总览 <span class="sub">本地免费模型网关 v${esc(s.version)}</span></h2>${banner}
+    <h2 class="pt">总览 <span class="sub">本地免费模型网关 v${esc(s.version)}</span></h2>${banner}${annHtml}
 
     <div class="sumstrip">
       <div class="cell"><div class="v">${avail}/${s.models.length}</div><div class="l">模型可用</div></div>
@@ -504,6 +673,13 @@ function renderDash(s){
   };
   document.getElementById("dash-reprobe").onclick = async ()=>{ toast("探测中，稍后刷新…"); await api("/reprobe", {}); };
   document.getElementById("dash-gologs").onclick = ()=>{ cur="logs"; localStorage.setItem("zengate.page","logs"); nav(); render(); };
+  document.querySelectorAll(".ann-read").forEach(b=>{
+    b.onclick = async ()=>{
+      const j = await api("/announcements/read", { id: b.dataset.id });
+      if(j) toast("已标记已读");
+      refresh();
+    };
+  });
 }
 
 function renderDashExtras(s){
@@ -547,22 +723,31 @@ function renderDashExtras(s){
 }
 
 /* ---- Agent 适配 ---- */
-/* ---- Agent 适配 ---- */
 function renderAgents(s){
   const el = $("#page-agents");
   el.innerHTML = `<h2 class="pt">Agent 适配 <span class="sub">开启后对应 Agent 的模型选择器出现免费模型；配置文件先备份，关闭即还原</span></h2>
-    <div class="card" id="agent-list"></div>`;
+    <div class="agrid" id="agent-list"></div>`;
   const box = el.querySelector("#agent-list");
   for(const a of s.agents){
-    const d = document.createElement("div"); d.className="switch";
-    d.innerHTML = `<div><span class="nm">${esc(a.name)}</span>
-      ${a.enabled?`<span class="pill ok">已开启</span>`:(a.installed?`<span class="pill unknown">未开启</span>`:`<span class="pill unknown">未检测到</span>`)}
-      ${a.version?`<span class="pill warn">${esc(a.version)}</span>`:""}
-      <div class="ds">${esc(a.detail||"")}</div>
-      ${a.warn?`<div class="warnline">⚠ ${esc(a.warn)}</div>`:""}</div>`;
-    const btn = document.createElement("button");
-    btn.className = "act" + (a.enabled?" off":"");
-    btn.textContent = a.enabled ? "关闭" : "开启";
+    const d = document.createElement("div");
+    d.className = "acard" + (a.enabled?" st-on":"") + (!a.installed?" st-noinst":"");
+    const lg = BRAND_LOGOS[a.id];
+    d.innerHTML = `
+      <div class="ahead">
+        <div class="aicon${lg?(lg.wide?" lg-wide":"")+(lg.neutral?" lg-neutral":""):""}">${lg?lg.svg:icon(AGENT_ICONS[a.id]||"agents")}</div>
+        <div class="att">
+          <div class="aname">${esc(a.name)}</div>
+          ${a.version?`<div class="aver">${esc(a.version)}</div>`:""}
+        </div>
+      </div>
+      <div class="ads">${esc(a.detail||"")}</div>
+      ${a.warn?`<div class="warnline">⚠ ${esc(a.warn)}</div>`:""}
+      <div class="afoot">
+        ${a.enabled?`<span class="pill ok">已开启</span>`:(a.installed?`<span class="pill unknown">未开启</span>`:`<span class="pill unknown">未检测到</span>`)}
+        <button class="tgl${a.enabled?" on":""}" role="switch" aria-checked="${a.enabled?"true":"false"}"
+          title="${a.installed?(a.enabled?"关闭":"开启"):("未检测到 "+esc(a.name))}"></button>
+      </div>`;
+    const btn = d.querySelector(".tgl");
     btn.disabled = !a.installed;
     btn.onclick = async ()=>{
       btn.disabled = true;
@@ -570,12 +755,12 @@ function renderAgents(s){
       if(j){ toast(a.enabled?"已关闭，配置已还原":"已开启，重启对应 Agent 后生效"); refresh(); }
       else { btn.disabled = false; }
     };
-    d.appendChild(btn); box.appendChild(d);
+    box.appendChild(d);
   }
 }
 
 /* ---- 模型 ---- */
-const STATE_ORDER = { available:0, unknown:1, throttled:2, "region-blocked":3, unavailable:4 };
+const STATE_ORDER = { available:0, custom:1, unknown:2, throttled:3, "region-blocked":4, unavailable:5 };
 function renderModels(s){
   const el = $("#page-models");
   const sorted = [...s.models].sort((a,b)=>{
@@ -583,34 +768,64 @@ function renderModels(s){
     if(b.id===s.probingModel) return 1;
     return (STATE_ORDER[a.state]??1)-(STATE_ORDER[b.state]??1);
   });
-  const avail = s.models.filter(m=>m.state==="available").length;
-  el.innerHTML = `<h2 class="pt">模型 <span class="sub">可用性由本机网络出口实测（每 ${s.settings.probeIntervalMinutes} 分钟）· ${avail}/${s.models.length} 可用，可用的排前面</span></h2>
+  const avail = s.models.filter(m=>m.state==="available" && !m.hidden).length;
+  const hiddenCount = s.models.filter(m=>m.hidden).length;
+  el.innerHTML = `<h2 class="pt">模型 <span class="sub">可用性由本机网络出口实测（每 ${s.settings.probeIntervalMinutes} 分钟）· ${avail} 个可用 · 勾选「选用」才会出现在 Agent 的模型选择器里${hiddenCount?` · 已隐藏 ${hiddenCount} 个`:""}</span></h2>
     <div class="card"><div class="row">
       <button class="ghost" id="reprobe">重新探测可用性</button>
+      <button class="ghost" id="hide-dead" title="把探测为不可用 / 地区受限的模型全部从 Agent 选择器隐藏（随时可单卡恢复）">隐藏全部不可用</button>
+      <button class="ghost" id="show-all" title="恢复全部隐藏的模型${hiddenCount?`（当前 ${hiddenCount} 个）`:""}">恢复全部显示</button>
       <span class="muted" style="font-size:12px" id="eg-line"></span>
       <span class="muted" style="font-size:12px">思考档位：默认档在「设置」里改；单个请求在模型名后加 (light)/(deep)，或选 /v1/models 里带后缀的变体。</span>
     </div></div>
     <div class="mgrid" id="mgrid"></div>`;
   el.querySelector("#eg-line").textContent = s.egress&&s.egress.ip ? `出口: ${s.egress.ip} (${s.egress.country||"?"})` : "出口未知";
   el.querySelector("#reprobe").onclick = async ()=>{ toast("探测中，稍后刷新…"); await api("/reprobe", {}); setTimeout(refresh, 4000); };
+  el.querySelector("#hide-dead").onclick = async ()=>{
+    const ids = s.models.filter(m=>!m.hidden && (m.state==="unavailable"||m.state==="region-blocked")).map(m=>m.id);
+    if(!ids.length){ toast("没有探测为不可用的模型"); return; }
+    const j = await api("/models/visibility", { ids, hidden: true });
+    if(j){ toast("已隐藏 " + ids.length + " 个模型，正在重新注入已开启的 Agent"); refresh(); }
+  };
+  el.querySelector("#show-all").onclick = async ()=>{
+    const ids = s.models.filter(m=>m.hidden).map(m=>m.id);
+    if(!ids.length){ toast("没有隐藏中的模型"); return; }
+    const j = await api("/models/visibility", { ids, hidden: false });
+    if(j){ toast("已全部恢复显示"); refresh(); }
+  };
   const grid = el.querySelector("#mgrid");
   grid.querySelectorAll(".mtest").forEach(b=>{
     b.onclick = async ()=>{
       b.disabled = true; b.textContent = "测试中…";
-      await api("/probe/"+encodeURIComponent(b.dataset.m), {});
+      const j = await api("/probe/"+encodeURIComponent(b.dataset.m), {});
+      if(j && j.result){
+        const r = j.result;
+        const sec = r.ttftMs ? "首字 " + (r.ttftMs/1000).toFixed(1) + "s" : "";
+        if(r.state==="available") toast("✓ 可用" + (sec?" · "+sec:""));
+        else if(r.state==="throttled") toast("已限额 —— 请求在生成前就被拒绝，没有首字数据" + (r.detail?" · "+String(r.detail).slice(0,80):""));
+        else if(r.state==="unavailable") toast("不可用 · " + (r.detail||""));
+        else toast("探测未成功 · " + (r.detail||"上游无响应，稍后再试"));
+      }
+      refresh();
+    };
+  });
+  grid.querySelectorAll("[data-vis]").forEach(cb=>{
+    cb.onchange = async ()=>{
+      const j = await api("/models/visibility", { id: cb.dataset.vis, hidden: !cb.checked });
+      if(j) toast(cb.checked ? "已选用，正在重新注入已开启的 Agent" : "已隐藏，正在重新注入已开启的 Agent");
       refresh();
     };
   });
   for(const m of sorted){
     const card = document.createElement("div");
-    card.className = "mcard st-" + (m.state||"unknown");
+    card.className = "mcard st-" + (m.hidden ? "hidden" : (m.state||"unknown")) + (m.hidden ? " dimmed" : "");
     const eff = (m.efforts||[]).map(e=>`<span class="eff">${e.name} <b>${(e.tokens/1024|0)}K</b>${e.isDefault?" ★":""}</span>`).join("");
     const pill = m.id === s.probingModel
       ? `<span class="pill warn">探测中…</span>`
-      : statePill(m.state);
+      : (m.hidden ? `<span class="pill hidsync">已隐藏</span>` : statePill(m.state));
     // Observed-quota row: usage vs estimated daily ceiling + throttle ETA.
     let quotaRow = "";
-    if(!m.systemOne){
+    if(!m.systemOne && !m.custom){
       const used = m.quotaUsed||0, est = m.quotaEstimate||0;
       const parts = [];
       if(est > 0){
@@ -628,21 +843,289 @@ function renderModels(s){
       }
       if(parts.length) quotaRow = `<div class="mquota">${parts.join("")}</div>`;
     }
+    const tags = (m.systemOne?'<span class="pill warn">判断模型</span>':"")
+      + (m.vision?'<span class="tag">视觉</span>':"") + (m.reasoning?'<span class="tag">思考</span>':(m.custom?"":'<span class="tag">纯文本</span>'));
     card.innerHTML = `
-      <div class="mhead"><span class="mname">${esc(m.name)}</span><span class="mops">${pill}<button class="ghost mtest" data-m="${esc(m.id)}" title="单独探测这个模型的可用性">测试</button></span></div>
+      <div class="mhead"><span class="mname" title="${esc(m.name)}">${esc(m.name)}</span>${pill}</div>
       <div class="mid">${esc(m.id)}</div>
       ${m.blurb?`<div class="mblurb" title="${esc(m.blurb)}">${esc(m.blurb)}</div>`:""}
+      ${m.custom?`
+      <div class="mmeta">
+        <span>首字 <b>${m.ttftMs?(m.ttftMs/1000).toFixed(1)+"s":"—"}</b></span>
+        <span title="${m.ttftCount?("近 "+m.ttftCount+" 次探测平均"):"暂无探测样本"}">平均首字 <b>${m.ttftAvgMs?(m.ttftAvgMs/1000).toFixed(1)+"s":"—"}</b></span>
+      </div>`:`
       <div class="mmeta">
         <span>首字 <b>${m.ttftMs?(m.ttftMs/1000).toFixed(1)+"s":"—"}</b></span>
         <span title="${m.ttftCount?("近 "+m.ttftCount+" 次探测平均"):"暂无探测样本"}">平均首字 <b>${m.ttftAvgMs?(m.ttftAvgMs/1000).toFixed(1)+"s":"—"}</b></span>
         <span>上下文 <b>${(m.contextWindow/1024|0)}K</b></span>
         <span>输出 <b>${(m.maxOutput/1024|0)}K</b></span>
-      </div>
-      <div class="mtags">${m.systemOne?'<span class="pill warn">判断模型</span>':""}${m.vision?'<span class="tag">视觉</span>':""}${m.reasoning?'<span class="tag">思考</span>':'<span class="tag">纯文本</span>'}</div>
-      ${m.reasoning&&eff?`<div class="meff">${eff}</div>`:""}
+      </div>`}
+      ${(tags||eff)?`<div class="mtags">${tags}${eff?`<span class="meff">${eff}</span>`:""}</div>`:""}
       ${quotaRow}
-      ${m.detail?`<div class="mdetail">${esc(m.detail).slice(0,120)}</div>`:""}`;
+      ${m.detail?`<div class="mdetail">${esc(m.detail).slice(0,120)}</div>`:""}
+      <div class="mfoot">
+        <label class="vispick" title="勾选 = 出现在 Agent 的模型选择器里；取消勾选只是不对外展示，直接点名调用仍可用">
+          <input type="checkbox" data-vis="${esc(m.id)}" ${m.hidden?"":"checked"}><span>选用</span></label>
+        <button class="ghost mtest" data-m="${esc(m.id)}" title="${m.custom?"向该供应商发一个最小请求，实测可用性与首字延迟":"单独探测这个模型的可用性"}">测试</button>
+      </div>`;
     grid.appendChild(card);
+  }
+}
+
+/* ---- 自定义 API ---- */
+let pvEditing = "";          // 正在编辑的供应商 id（"" = 新增）
+let pvFetched = [];          // 本次表单里拉到的模型全集
+let pvSelected = new Set();  // 勾选要入库的模型
+let pvEditSaved = [];        // 编辑前的已保存模型（用于预勾选）
+
+function pvProto(){ return $("#pv-proto").dataset.value || "openai"; }
+
+function renderProviders(s){
+  const el = $("#page-providers");
+  if(!el.dataset.rendered){
+    el.innerHTML = `
+      <h2 class="pt">自定义 API <span class="sub">接入你自己的上游（OpenAI / Anthropic 兼容），模型以 供应商ID/模型名 出现在所有 Agent 选择器里</span></h2>
+      <div class="card">
+        <h3>免费模型商预设 <span class="muted" style="font-size:11px">点击填充，Key 需要你自己去对应平台申请</span></h3>
+        <div class="pchips" id="pv-presets"></div>
+        <div class="muted" style="font-size:11.5px;margin-top:8px" id="pv-preset-hint"></div>
+      </div>
+      <div class="card pform">
+        <h3 id="pv-form-title">添加供应商</h3>
+        <div class="frow"><span class="flbl">名称</span><input class="tin" id="pv-name" style="width:220px" placeholder="NVIDIA NIM">
+          <span class="flbl" style="width:52px">协议</span><span id="pv-proto"></span></div>
+        <div class="frow"><span class="flbl">Base URL</span><input class="tin" id="pv-url" style="width:340px" placeholder="https://integrate.api.nvidia.com/v1"></div>
+        <div class="frow"><span class="flbl">API Key</span><input class="tin" id="pv-key" type="password" style="width:260px" placeholder="自己的 Key；本地服务可留空">
+          <span class="muted" style="font-size:11.5px" id="pv-key-hint"></span></div>
+        <div class="frow">
+          <button class="ghost" id="pv-fetch">拉取模型列表</button>
+          <button class="act" id="pv-save">保存</button>
+          <button class="ghost" id="pv-cancel" style="display:none">取消编辑</button>
+          <span class="muted" style="font-size:11.5px" id="pv-fetch-hint"></span>
+        </div>
+        <div id="pv-picker" style="display:none">
+          <div class="pv-pickhead">
+            <span class="dim" style="font-size:12px" id="pv-pick-count"></span>
+            <span style="display:flex; gap:6px; align-items:center">
+              <input class="tin" id="pv-pick-filter" placeholder="筛选模型 id…" style="width:200px">
+              <button class="ghost" id="pv-pick-all" style="padding:3px 10px; font-size:12px">全选</button>
+              <button class="ghost" id="pv-pick-none" style="padding:3px 10px; font-size:12px">清空</button>
+            </span>
+          </div>
+          <div class="pv-picklist" id="pv-picklist"></div>
+          <div class="muted" style="font-size:11px; margin-top:5px">勾选的模型才会计入保存；保存后仍可随时回来调整。</div>
+        </div>
+      </div>
+      <div class="pgrid" id="pv-list"></div>`;
+    makeDropdown(el.querySelector("#pv-proto"),
+      [["openai","OpenAI 兼容"],["anthropic","Anthropic 兼容"]], "openai", null);
+    el.querySelector("#pv-cancel").onclick = ()=>{ pvResetForm(); };
+    el.querySelector("#pv-pick-filter").oninput = ()=> pvRenderPicker();
+    el.querySelector("#pv-pick-all").onclick = ()=>{
+      const f = el.querySelector("#pv-pick-filter").value.trim().toLowerCase();
+      for(const m of pvFetched){ if(!f || m.toLowerCase().includes(f)) pvSelected.add(m); }
+      pvRenderPicker();
+    };
+    el.querySelector("#pv-pick-none").onclick = ()=>{ pvSelected.clear(); pvRenderPicker(); };
+    el.querySelector("#pv-fetch").onclick = async ()=>{
+      const name = el.querySelector("#pv-name").value.trim();
+      const url = el.querySelector("#pv-url").value.trim();
+      if(!url){ toast("先填 Base URL"); return; }
+      const btn = el.querySelector("#pv-fetch");
+      btn.disabled = true; btn.textContent = "拉取中…";
+      // 编辑时 Key 是写-only 的（留空=保持原值），用存储的 Key 以 save:false 拉取
+      let body, usingStored = false;
+      if(pvEditing && !el.querySelector("#pv-key").value){
+        body = { id: pvEditing, save:false }; usingStored = true;
+      } else {
+        body = { name: name||"provider", baseUrl: url, apiKey: el.querySelector("#pv-key").value, protocol: pvProto() };
+      }
+      const r = await fetch("/admin/api/providers/models", {method:"POST",
+        headers:{"content-type":"application/json"}, body: JSON.stringify(body)});
+      btn.disabled = false; btn.textContent = "拉取模型列表";
+      const j = await r.json().catch(()=>({}));
+      if(!j.ok){ toast(j.error || "拉取失败"); return; }
+      if(j.saved){ pvResetForm(); toast("模型列表已刷新"); refresh(); return; }
+      pvFetched = j.models || [];
+      // 默认只勾后端推荐的"好用"子集（策展名单 + 启发式过滤），不全部勾上
+      const rec = j.recommended || [];
+      pvSelected = new Set(rec.filter(m => pvFetched.includes(m)));
+      pvRenderPicker();
+      toast("拉到 " + pvFetched.length + " 个模型，已默认勾选 " + pvSelected.size + " 个好用的");
+    };
+    el.querySelector("#pv-save").onclick = async ()=>{
+      const name = el.querySelector("#pv-name").value.trim();
+      const url = el.querySelector("#pv-url").value.trim();
+      if(!name || !url){ toast("名称和 Base URL 必填"); return; }
+      const body = { name, baseUrl: url, apiKey: el.querySelector("#pv-key").value,
+        protocol: pvProto(), enabled: true };
+      if(pvEditing){
+        body.id = pvEditing;
+        if(pvFetched.length) body.models = [...pvSelected];
+      } else {
+        // 新增时没拉过模型就先拉一次：顺带验证连通性
+        if(!pvFetched.length){
+          const fr = await fetch("/admin/api/providers/models", {method:"POST",
+            headers:{"content-type":"application/json"}, body: JSON.stringify({name, baseUrl: url,
+              apiKey: body.apiKey, protocol: body.protocol})});
+          const fj = await fr.json().catch(()=>({}));
+          if(fj.ok){
+            pvFetched = fj.models || [];
+            pvSelected = new Set((fj.recommended || []).filter(m => pvFetched.includes(m)));
+            pvRenderPicker();
+          }
+          else if(!confirm("拉取模型失败：" + (fj.error||"") + "\n仍要保存吗？（可稍后手动拉取挑选）")) return;
+        }
+        if(!pvSelected.size && pvFetched.length && !confirm("还没有勾选任何模型，保存后模型列表为空。继续？")) return;
+        if(pvFetched.length) body.models = [...pvSelected];
+      }
+      const j = await api("/providers", body);
+      if(j){ const wasEditing = !!pvEditing; pvResetForm(); toast(wasEditing ? "已保存，模型列表已更新" : "已接入，勾选的模型已出现在 /v1/models"); refresh(); }
+    };
+    el.dataset.rendered = "1";
+  }
+  // 预设（后端下发，前端不写死）
+  const presets = s.providerPresets || [];
+  const pbox = el.querySelector("#pv-presets");
+  if(pbox){
+    pbox.innerHTML = presets.map(p=>`
+      <div class="pchip" data-pid="${esc(p.id)}" title="${esc(p.note||"")}">
+        <span class="pn">${esc(p.name)}</span><span class="pu">${esc(hostOf(p.baseUrl))}</span>
+      </div>`).join("");
+    pbox.querySelectorAll(".pchip").forEach(c=>{
+      c.onclick = ()=>{
+        const p = presets.find(x=>x.id===c.dataset.pid); if(!p) return;
+        pvEditing = ""; pvFetched = []; pvSelected = new Set(); pvEditSaved = [];
+        el.querySelector("#pv-form-title").textContent = "添加供应商";
+        el.querySelector("#pv-name").value = p.name;
+        el.querySelector("#pv-url").value = p.baseUrl;
+        el.querySelector("#pv-key").value = "";
+        el.querySelector("#pv-key").type = "text";
+        makeDropdown(el.querySelector("#pv-proto"),
+          [["openai","OpenAI 兼容"],["anthropic","Anthropic 兼容"]], p.protocol||"openai", null);
+        el.querySelector("#pv-preset-hint").innerHTML =
+          esc(p.name) + "：" + esc(p.note||"") +
+          (p.keyUrl ? ` · <a href="${esc(p.keyUrl)}" target="_blank" style="color:var(--accent)">申请 Key →</a>` : "");
+        pvRenderPicker();
+        el.querySelector("#pv-name").scrollIntoView({behavior:"smooth", block:"center"});
+      };
+    });
+  }
+  renderProviderList(s);
+}
+
+function hostOf(u){ try { return new URL(u).host; } catch(e){ return u; } }
+
+function pvRenderPicker(){
+  const wrap = $("#pv-picker"); if(!wrap) return;
+  if(!pvFetched.length){ wrap.style.display = "none"; return; }
+  wrap.style.display = "";
+  const f = $("#pv-pick-filter").value.trim().toLowerCase();
+  const shown = pvFetched.filter(m => !f || m.toLowerCase().includes(f));
+  const box = $("#pv-picklist");
+  box.innerHTML = shown.length
+    ? shown.map(m=>`<label><input type="checkbox" data-m="${esc(m)}" ${pvSelected.has(m)?"checked":""}><span>${esc(m)}</span></label>`).join("")
+    : '<div class="pv-empty">没有匹配的模型 id。</div>';
+  box.querySelectorAll("input[type=checkbox]").forEach(cb=>{
+    cb.onchange = ()=>{ cb.checked ? pvSelected.add(cb.dataset.m) : pvSelected.delete(cb.dataset.m); pvPickCount(); };
+  });
+  pvPickCount();
+}
+
+function pvPickCount(){
+  const el = $("#pv-pick-count"); if(!el) return;
+  el.innerHTML = `拉到 <b>${pvFetched.length}</b> 个 · 已勾选 <b style="color:var(--accent)">${pvSelected.size}</b> 个`;
+}
+
+function pvResetForm(){
+  pvEditing = ""; pvFetched = []; pvSelected = new Set(); pvEditSaved = [];
+  const el = $("#page-providers"); if(!el) return;
+  el.querySelector("#pv-form-title").textContent = "添加供应商";
+  ["#pv-name","#pv-url","#pv-key","#pv-pick-filter"].forEach(sel=>{ const n = el.querySelector(sel); if(n) n.value = ""; });
+  el.querySelector("#pv-key").type = "password";
+  el.querySelector("#pv-key").placeholder = "自己的 Key；本地服务可留空";
+  el.querySelector("#pv-cancel").style.display = "none";
+  const hint = el.querySelector("#pv-fetch-hint"); if(hint) hint.textContent = "";
+  pvRenderPicker();
+}
+
+function renderProviderList(s){
+  const el = $("#page-providers");
+  const box = el.querySelector("#pv-list"); if(!box) return;
+  const providers = s.providers || [];
+  if(!providers.length){
+    box.innerHTML = `<div class="card"><div class="muted" style="font-size:12.5px">
+      还没有自定义供应商。点上面的预设卡片一键填充，或直接填 Base URL + Key → 拉取模型列表 → 勾选想要的模型 → 保存。
+      接入后模型会以 <code class="k">供应商ID/模型名</code> 出现在所有已开启 Agent 的模型选择器里。</div></div>`;
+    return;
+  }
+  box.innerHTML = "";
+  for(const p of providers){
+    const d = document.createElement("div");
+    d.className = "pvcard" + (p.enabled ? "" : " off");
+    const models = p.models || [];
+    const chips = models.slice(0,12).map(m=>`<span class="pm">${esc(m)}</span>`).join("")
+      + (models.length>12 ? `<span class="pm">+${models.length-12} …</span>` : "");
+    d.innerHTML = `
+      <div class="pvhead">
+        <span class="pvdot ${p.enabled?"on":""}" title="${p.enabled?"已启用":"已停用"}"></span>
+        <div class="pvt">
+          <div class="pvn"><span class="nm">${esc(p.name)}</span><span class="pvpill">${esc(p.protocol)}</span></div>
+          <div class="pvu"><span class="k">Key ${esc(p.apiKeyMasked||"未设置")}</span></div>
+        </div>
+        <button class="tgl${p.enabled?" on":""}" role="switch" aria-checked="${p.enabled?"true":"false"}"
+          title="${p.enabled?"停用":"启用"}"></button>
+      </div>
+      <div class="pvmrow">
+        <span class="pvcount">${models.length} 模型</span>
+        <div class="pmodels">${chips || '<span class="muted" style="font-size:11.5px">还没有模型 —— 点下方「挑选模型」拉取并勾选</span>'}</div>
+      </div>
+      <div class="pvfoot">
+        <span class="u" title="${esc(p.baseUrl)}">${esc(p.baseUrl)}</span>
+        <span class="pvops">
+          <button data-op="pick" title="重新拉取模型列表并勾选要接入的">挑选模型</button>
+          <button data-op="edit">编辑</button>
+          <button data-op="ref" title="重新拉取并修剪：只保留仍在上游的已勾选模型，新模型不会自动加入">刷新</button>
+          <button data-op="del" class="danger">删除</button>
+        </span>
+      </div>`;
+    const openEditor = ()=>{
+      pvEditing = p.id; pvFetched = []; pvEditSaved = (p.models||[]).slice();
+      pvSelected = new Set(pvEditSaved);
+      el.querySelector("#pv-form-title").textContent = "编辑：" + p.name;
+      el.querySelector("#pv-name").value = p.name;
+      el.querySelector("#pv-url").value = p.baseUrl;
+      el.querySelector("#pv-key").value = "";
+      el.querySelector("#pv-key").placeholder = "留空 = 保持原 Key" + (p.hasKey ? "" : "（未设置）");
+      makeDropdown(el.querySelector("#pv-proto"),
+        [["openai","OpenAI 兼容"],["anthropic","Anthropic 兼容"]], p.protocol||"openai", null);
+      el.querySelector("#pv-cancel").style.display = "";
+      pvRenderPicker();
+      el.querySelector("#pv-name").scrollIntoView({behavior:"smooth", block:"center"});
+    };
+    d.querySelector('[data-op="edit"]').onclick = openEditor;
+    d.querySelector('[data-op="pick"]').onclick = ()=>{ openEditor(); el.querySelector("#pv-fetch").click(); };
+    d.querySelector('[data-op="ref"]').onclick = async ()=>{
+      toast("拉取中…");
+      const j = await api("/providers/models", { id: p.id });
+      if(j) toast("已更新，" + (j.models||[]).length + " 个模型");
+      refresh();
+    };
+    d.querySelector('[data-op="del"]').onclick = async ()=>{
+      if(!confirm("删除供应商「" + p.name + "」？其模型会从所有 Agent 选择器消失。")) return;
+      const j = await api("/providers/delete", { id: p.id });
+      if(j) toast("已删除");
+      refresh();
+    };
+    const tgl = d.querySelector(".tgl");
+    tgl.onclick = async ()=>{
+      tgl.disabled = true;
+      const j = await api("/providers", { id: p.id, name: p.name, baseUrl: p.baseUrl,
+        protocol: p.protocol, enabled: !p.enabled });
+      if(j) toast(p.enabled ? "已停用，模型不再出现" : "已启用");
+      refresh();
+    };
+    box.appendChild(d);
   }
 }
 
@@ -672,8 +1155,6 @@ function renderAccess(s){
 /* ---- 用量（ZCode 风格） ---- */
 const SEASON = ["#38bdf8","#2dd4bf","#a78bfa","#f59e0b","#f472b6","#34d399","#fb7185","#60a5fa"];
 let heatMode = "daily";              // daily | weekly | cumulative
-let trendRange = 0;
-let trendMetric = "tokens";
 let usageDay = null;
 
 function dayKey(d){ const p=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
@@ -743,23 +1224,6 @@ function renderUsage(s){
       <div id="day-detail"></div>
     </div>
 
-    <div class="card">
-      <div class="row" style="justify-content:space-between; margin-bottom:10px">
-        <h3 style="margin:0">趋势</h3>
-        <div class="row" style="gap:8px">
-          <div class="seg" id="trend-range">
-            ${[0,7,30].map(r=>`<button data-r="${r}" class="${trendRange===r?"on":""}">${r===0?"全部":"近 "+r+" 日"}</button>`).join("")}
-          </div>
-          <div class="seg" id="seg-metric">
-            <button data-m="tokens" class="${trendMetric==="tokens"?"on":""}">Tokens</button>
-            <button data-m="requests" class="${trendMetric==="requests"?"on":""}">请求数</button>
-          </div>
-        </div>
-      </div>
-      <div class="row" id="legend" style="gap:6px; margin-bottom:8px; flex-wrap:wrap"></div>
-      <div class="svgwrap" id="trend"></div>
-    </div>
-
     <div class="card" style="margin-bottom:12px">
       <h3>速度与延迟</h3>
       <div class="speedgrid" id="speed"></div>
@@ -774,23 +1238,12 @@ function renderUsage(s){
 
   renderHeat(U, U.keys);
   renderDayDetail(U);
-  renderTrendMulti(U, U.keys);
-  // legend: model color dots
-  const lgBox = el.querySelector('#legend');
-  if (lgBox) {
-    lgBox.innerHTML = U.top.map(([m],i)=>{
-      const c = SEASON[i%SEASON.length];
-      return '<button class="chip" style="border-color:'+c+'"><span class="dotc" style="background:'+c+'"></span>'+esc(m.split("-").slice(0,2).join("-"))+'</button>';
-    }).join('');
-  }
   renderSpeed(recent);
   renderByModel(U, grand);
   renderByAgent(U);
   renderRecent(recent);
 
   el.querySelector("#hm-modes").querySelectorAll("button").forEach(b=>b.onclick=()=>{ heatMode=b.dataset.m; renderUsage(s); });
-  el.querySelector("#seg-metric").querySelectorAll("button").forEach(b=>b.onclick=()=>{ trendMetric=b.dataset.m; renderUsage(s); });
-  el.querySelector("#trend-range").querySelectorAll("button").forEach(b=>b.onclick=()=>{ trendRange=parseInt(b.dataset.r); renderUsage(s); });
 }
 
 function renderHeat(U, keys){
@@ -915,91 +1368,6 @@ function renderDayDetail(U){
   box.innerHTML = html;
   const x = box.querySelector("[data-x]");
   if(x) x.onclick = ()=>{ usageDay=null; renderUsage(STATE); };
-}
-
-function renderTrendMulti(U, allKeys){
-  const box = $("#trend");
-  let keys = allKeys;
-  if(trendRange>0) keys = keys.slice(-trendRange);
-  const W=900,H=220,pl=52,pr=8,pt=8,pb=22;
-  if(keys.length<2){ box.innerHTML = '<div class="muted" style="font-size:12px">再跑一两天就有曲线了。</div>'; return; }
-
-  const useReq = trendMetric === "requests";
-  const fmtV = v => useReq ? String(Math.round(v)) : fmtK(v);
-
-  // one series per top model + total; in requests mode drop models with no recorded requests
-  const series = [];
-  series.push({ name: "总计", color: "var(--accent)", data: keys.map(k=> useReq ? U.byDay[k].requests : U.byDay[k].total) });
-  for(const [m] of U.top){
-    const data = keys.map(k=> useReq ? (U.byDay[k].modelReqs[m]||0) : (U.byDay[k].models[m]||0));
-    if(data.some(v=>v>0)) series.push({ name: m.split("-").slice(0,2).join("-"),
-      color: SEASON[U.top.findIndex(([mm])=>mm===m)%SEASON.length], data });
-  }
-
-  const peak = Math.max(1, ...series.flatMap(s=>s.data));
-  const x = i => pl + (W-pl-pr)*i/(keys.length-1);
-  const y = v => pt + (H-pt-pb)*(1 - v/peak);
-
-  const grid = [0,0.5,1].map(f=>{
-    const gy = y(peak*f).toFixed(1);
-    return '<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" style="stroke:var(--hairline-soft)"'+(f===0?"":' stroke-dasharray="3 3"')+'/>'+
-      '<text x="'+(pl-6)+'" y="'+gy+'" style="fill:var(--ink-mute)" font-size="10" text-anchor="end" dominant-baseline="middle">'+fmtV(peak*f)+'</text>';
-  }).join("");
-
-  const tickIdx = [0, Math.floor((keys.length-1)/2), keys.length-1].filter((v,i,a)=>a.indexOf(v)===i);
-  const ticks = tickIdx.map(i=>{
-    const anchor = i===0 ? "start" : (i===keys.length-1 ? "end" : "middle");
-    const tx = i===0 ? pl : (i===keys.length-1 ? W-pr : x(i).toFixed(1));
-    return '<text x="'+tx+'" y="'+(H-5)+'" style="fill:var(--ink-mute)" font-size="10" text-anchor="'+anchor+'">'+keys[i].slice(5)+'</text>';
-  }).join("");
-
-  const paths = series.map((s,si)=>{
-    const pts = s.data.map((v,i)=>x(i).toFixed(1)+","+y(v).toFixed(1)).join(" L");
-    return '<path d="M'+pts+'" style="fill:none; stroke:'+s.color+'; stroke-width:2" vector-effect="non-scaling-stroke"/>';
-  }).join("");
-
-  box.innerHTML = '<svg id="trend-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" style="width:100%;height:auto;cursor:crosshair">'
-    + grid + paths + ticks
-    + '<line id="trend-x" x1="0" x2="0" y1="'+pt+'" y2="'+(H-pb)+'" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" visibility="hidden"/>'
-    + '<g id="trend-dots"></g>'
-    + '</svg><div id="trend-tip"></div>';
-
-  // hover crosshair + tooltip; click pins/unpins
-  const svg = box.querySelector("#trend-svg");
-  const xline = box.querySelector("#trend-x");
-  const dots = box.querySelector("#trend-dots");
-  const tip = box.querySelector("#trend-tip");
-  let pinned = -1;
-  const idxAt = e => {
-    const r = svg.getBoundingClientRect();
-    return Math.max(0, Math.min(keys.length-1, Math.round(((e.clientX - r.left)/r.width)*(keys.length-1))));
-  };
-  const show = (i, ev) => {
-    const px = x(i).toFixed(1);
-    xline.setAttribute("x1", px); xline.setAttribute("x2", px);
-    xline.removeAttribute("visibility");
-    dots.innerHTML = series.map(s=>'<circle cx="'+px+'" cy="'+y(s.data[i]).toFixed(1)+'" r="3.5" style="fill:'+s.color+';stroke:var(--panel);stroke-width:1.5"/>').join("");
-    tip.innerHTML = '<div class="tt-date">'+keys[i]+(pinned===i?' <span style="color:var(--accent)">📌</span>':'')+'</div>'
-      + series.map(s=>'<div class="tt-row"><i style="background:'+s.color+'"></i>'+esc(s.name)+'<b>'+fmtV(s.data[i])+'</b></div>').join("");
-    tip.style.display = "block";
-    const r = svg.getBoundingClientRect();
-    const cx = r.left + (x(i)/W)*r.width;
-    let lx = cx + 12;
-    if(lx + tip.offsetWidth > window.innerWidth - 8) lx = cx - tip.offsetWidth - 12;
-    tip.style.left = Math.max(8, lx) + "px";
-    tip.style.top = Math.max(8, (ev ? ev.clientY : r.top + r.height/2) - 24) + "px";
-  };
-  const hide = () => {
-    if(pinned >= 0){ show(pinned, null); return; }
-    xline.setAttribute("visibility","hidden"); dots.innerHTML=""; tip.style.display="none";
-  };
-  svg.onmousemove = e => { if(pinned < 0) show(idxAt(e), e); };
-  svg.onmouseleave = hide;
-  svg.onclick = e => {
-    const i = idxAt(e);
-    pinned = (pinned === i) ? -1 : i;
-    if(pinned >= 0) show(pinned, e); else hide();
-  };
 }
 
 function renderSpeed(recent){
@@ -1155,6 +1523,9 @@ function renderSettings(s){
         <div class="row" style="margin-top:10px">
           <label class="dim">更新源 URL <input type="text" id="set-feed" placeholder="https://api.github.com/repos/you/zen-gate/releases/latest（留空关闭）" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;width:340px;font-family:var(--mono)"></label>
         </div>
+        <div class="row" style="margin-top:10px">
+          <label class="dim">公告源 URL <input type="text" id="set-ann" placeholder="https://raw.githubusercontent.com/you/zen-gate/main/announcements.json（留空关闭）" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;width:340px;font-family:var(--mono)"></label>
+        </div>
         <div class="muted" style="font-size:12px;margin-top:8px">代理保存即热生效（影响上游推理/清单/探测请求）。更新源返回 {"version":"x.y.z","url":"下载页"}，检测到新版本会横幅提示 + 系统通知（窗口隐藏时）。</div>
       </div>
 
@@ -1170,11 +1541,12 @@ function renderSettings(s){
       `;
     el.querySelector("#save").onclick = async ()=>{
       const j = await api("/settings", { updateFeed: document.getElementById("set-feed").value.trim(),
+      announcementFeed: document.getElementById("set-ann").value.trim(),
       statsServerUrl: document.getElementById("set-stats-url").value.trim(),
       defaultEffort: document.getElementById("set-effort").dataset.value,
                                          defaultMaxTokens: parseInt($("#set-max").value)||undefined,
                                          probeIntervalMinutes: parseInt($("#set-probe").value)||undefined });
-      if(j) toast("已保存，默认思考档位对所有 Agent 生效");
+      if(j) toast("已保存，公告源每 6 小时同步一次");
     };
     el.querySelector("#tg-tray").onclick = async e => {
       const on = !e.target.dataset.on;
@@ -1239,6 +1611,7 @@ function renderSettings(s){
     s.settings.proxyMode || "env", null);
   el.querySelector("#set-proxy-url").value = s.settings.proxyURL || "";
   el.querySelector("#set-feed").value = s.settings.updateFeed || "";
+  el.querySelector("#set-ann").value = s.settings.announcementFeed || "";
   el.querySelector("#set-stats-url").value = s.settings.statsServerUrl || "";
   setToggle("#tg-tray", s.settings.closeToTray);
   setToggle("#tg-notify", s.settings.notifications);
@@ -1301,7 +1674,7 @@ let lastSig = "";
 async function refresh(){
   const j = await api("/state"); if(!j) return;
   if(typeof j.uptimeSec === "number") bootAt = Date.now() - j.uptimeSec*1000;
-  const sig = JSON.stringify([j.models,j.agents,j.stats,j.settings,j.egress,j.mainKey,j.baseURL,j.port]);
+  const sig = JSON.stringify([j.models,j.agents,j.stats,j.settings,j.egress,j.mainKey,j.baseURL,j.port,j.providers,j.announcements]);
   if (sig === lastSig){ tickUptime(); return; }
   lastSig = sig; STATE = j; render();
 }

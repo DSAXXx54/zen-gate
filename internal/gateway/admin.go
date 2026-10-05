@@ -2,6 +2,7 @@ package gateway
 
 import (
 	_ "embed"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"io"
@@ -15,10 +16,12 @@ import (
 
 	neturl "net/url"
 	"zen-gate/internal/agents"
+	"zen-gate/internal/announce"
 	"zen-gate/internal/lane"
-	"zen-gate/internal/update"
 	"zen-gate/internal/notify"
+	"zen-gate/internal/relay"
 	"zen-gate/internal/store"
+	"zen-gate/internal/update"
 )
 
 //go:embed web/index.html
@@ -29,6 +32,7 @@ type AgentRegistry interface {
 	Views() []agents.View
 	Enable(id string) error
 	Disable(id string) error
+	ResyncEnabled() int
 }
 
 func decodeBody(r *http.Request, v any) error {
@@ -91,6 +95,16 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, rest string
 		s.adminImport(w, r)
 	case strings.HasPrefix(rest, "agent/"):
 		s.adminAgent(w, r, strings.TrimPrefix(rest, "agent/"))
+	case rest == "providers" && r.Method == http.MethodPost:
+		s.adminProviderSave(w, r)
+	case rest == "providers/delete" && r.Method == http.MethodPost:
+		s.adminProviderDelete(w, r)
+	case rest == "providers/models" && r.Method == http.MethodPost:
+		s.adminProviderModels(w, r)
+	case rest == "models/visibility" && r.Method == http.MethodPost:
+		s.adminModelVisibility(w, r)
+	case rest == "announcements/read" && r.Method == http.MethodPost:
+		s.adminAnnouncementRead(w, r)
 	default:
 		writeJSON(w, 404, map[string]any{"error": "not found"})
 	}
@@ -156,9 +170,16 @@ func (s *Server) adminState(w http.ResponseWriter) {
 		// Probe first-token history (persisted, survives restarts).
 		TTFTAvgMs int64 `json:"ttftAvgMs,omitempty"`
 		TTFTCount int   `json:"ttftCount,omitempty"`
+		// Custom marks a user-added provider's model (no lane probe, no quota).
+		Custom     bool   `json:"custom,omitempty"`
+		ProviderID string `json:"providerId,omitempty"`
+		// Hidden marks a model the user unchecked: servable but not advertised
+		// to agent pickers.
+		Hidden bool `json:"hidden,omitempty"`
 	}
 	days, recent := s.Store.SnapshotStats()
 	notes := s.Lane.ThrottleNotes()
+	hidden := s.hiddenSet()
 	models := []modelRow{}
 	for _, m := range cat {
 		p := av[m.ID]
@@ -170,6 +191,7 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			SystemOne:     m.SystemOne,
 			ContextWindow: m.ContextWindow, MaxOutput: m.MaxOutput,
 			Efforts: lane.EffortsFor(m, 0, cfg.DefaultMaxTokens),
+			Hidden:  hidden[m.ID],
 		}
 		row.TTFTAvgMs, row.TTFTCount = s.Store.TTFTStats(m.ID)
 		// Right after a boot the fresh probe has not run yet — fall back to
@@ -186,6 +208,34 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			}
 		}
 		models = append(models, row)
+	}
+	// Custom-provider models follow the free-lane ones so the 模型 page shows
+	// everything the gateway serves in one place. Their state starts at
+	// "custom" and becomes a real verdict once the user probes them.
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		for _, mid := range p.Models {
+			id := p.ID + "/" + mid
+			row := modelRow{
+				ID: id, Name: mid, State: "custom", Custom: true,
+				ProviderID: p.ID,
+				Blurb:      "自定义供应商「" + p.Name + "」",
+				Hidden:     hidden[id],
+			}
+			if pr, ok := s.customProbeOf(id); ok {
+				row.State = pr.State
+				row.Detail = pr.Detail
+				row.TTFTMs = pr.TTFTMs
+			}
+			row.TTFTAvgMs, row.TTFTCount = s.Store.TTFTStats(id)
+			if row.TTFTMs == 0 && row.TTFTAvgMs > 0 {
+				row.TTFTMs = row.TTFTAvgMs
+			}
+			models = append(models, row)
+		}
 	}
 	agentsView := []agents.View{}
 	if s.registry != nil {
@@ -208,6 +258,7 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			"closeToTray":          cfg.CloseToTray,
 			"notifications":        cfg.Notifications,
 			"updateFeed":           cfg.UpdateFeed,
+			"announcementFeed":     cfg.AnnouncementFeed,
 			"statsServerUrl":       cfg.StatsServerURL,
 			"updateAvailable":      s.updateAvailable,
 			"updateVersion":        s.updateVersion,
@@ -218,12 +269,15 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			"failoverEnabled":      cfg.FailoverEnabled,
 			"failoverMax":          cfg.FailoverMax,
 		},
-		"probingModel": s.Lane.ProbingModel(),
-		"version":      Version,
-		"startedAt":    startedAt.Format("2006-01-02 15:04:05"),
-		"uptime":       time.Since(startedAt).Round(time.Second).String(),
-		"uptimeSec":    int64(time.Since(startedAt).Seconds()),
-		"dataDir":      s.Store.Home,
+		"probingModel":    s.currentProbingModel(),
+		"providers":       s.providerViews(),
+		"providerPresets": relay.Presets,
+		"announcements":   s.announcementViews(),
+		"version":         Version,
+		"startedAt":       startedAt.Format("2006-01-02 15:04:05"),
+		"uptime":          time.Since(startedAt).Round(time.Second).String(),
+		"uptimeSec":       int64(time.Since(startedAt).Seconds()),
+		"dataDir":         s.Store.Home,
 		"now":          time.Now().Format("2006-01-02 15:04:05"),
 	})
 }
@@ -281,6 +335,7 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		ProxyMode            *string `json:"proxyMode"`
 		ProxyURL             *string `json:"proxyUrl"`
 		UpdateFeed           *string `json:"updateFeed"`
+		AnnouncementFeed     *string `json:"announcementFeed"`
 		StatsServerURL       *string `json:"statsServerUrl"`
 		FailoverEnabled      *bool   `json:"failoverEnabled"`
 		FailoverMax          *int    `json:"failoverMax"`
@@ -346,6 +401,10 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		cfg.UpdateFeed = strings.TrimSpace(*in.UpdateFeed)
 		changed = true
 	}
+	if in.AnnouncementFeed != nil {
+		cfg.AnnouncementFeed = strings.TrimSpace(*in.AnnouncementFeed)
+		changed = true
+	}
 	if in.StatsServerURL != nil {
 		cfg.StatsServerURL = strings.TrimRight(strings.TrimSpace(*in.StatsServerURL), "/")
 		changed = true
@@ -369,6 +428,136 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		_ = s.Store.Save()
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "changed": changed})
+}
+
+// adminModelVisibility updates which models appear in agent pickers and
+// /v1/models. Accepts one id or a batch. A short debounce later, every enabled
+// agent's config is re-injected with the new list.
+func (s *Server) adminModelVisibility(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID     string   `json:"id"`
+		IDs    []string `json:"ids"`
+		Hidden bool     `json:"hidden"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	ids := in.IDs
+	if in.ID != "" {
+		ids = append(ids, in.ID)
+	}
+	if len(ids) == 0 {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "missing id"})
+		return
+	}
+	cfg := s.Store.Config()
+	set := map[string]bool{}
+	for _, h := range cfg.HiddenModels {
+		set[h] = true
+	}
+	changed := 0
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if in.Hidden && !set[id] {
+			set[id] = true
+			changed++
+		}
+		if !in.Hidden && set[id] {
+			delete(set, id)
+			changed++
+		}
+	}
+	if changed > 0 {
+		out := make([]string, 0, len(set))
+		for _, h := range cfg.HiddenModels {
+			if set[h] {
+				out = append(out, h)
+				delete(set, h)
+			}
+		}
+		for h := range set {
+			out = append(out, h)
+		}
+		cfg.HiddenModels = out
+		if err := s.Store.Save(); err != nil {
+			writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		if s.logger != nil {
+			action := "恢复显示"
+			if in.Hidden {
+				action = "隐藏"
+			}
+			s.logger.Infof("模型可见性: %s %v（当前隐藏 %d 个）", action, ids, len(out))
+		}
+		if s.registry != nil {
+			time.AfterFunc(1500*time.Millisecond, func() {
+				if n := s.registry.ResyncEnabled(); n > 0 && s.logger != nil {
+					s.logger.Infof("可见性变化，已重新注入 %d 个已开启 Agent 的配置", n)
+				}
+			})
+		}
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "changed": changed})
+}
+
+// adminAnnouncementRead marks one announcement 已读 so the dashboard stops
+// highlighting it. The seen-id ring is capped to keep config.json tidy.
+func (s *Server) adminAnnouncementRead(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	in.ID = strings.TrimSpace(in.ID)
+	if in.ID == "" {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "missing id"})
+		return
+	}
+	cfg := s.Store.Config()
+	for _, seen := range cfg.SeenAnnouncements {
+		if seen == in.ID {
+			writeJSON(w, 200, map[string]any{"ok": true})
+			return
+		}
+	}
+	cfg.SeenAnnouncements = append(cfg.SeenAnnouncements, in.ID)
+	if n := len(cfg.SeenAnnouncements); n > 100 {
+		cfg.SeenAnnouncements = cfg.SeenAnnouncements[n-100:]
+	}
+	if err := s.Store.Save(); err != nil {
+		writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// announcementViews is the admin-facing snapshot: active items with an
+// 已读 flag computed against the seen ring.
+func (s *Server) announcementViews() []map[string]any {
+	v, ok := s.announcements.Load().([]announce.Item)
+	if !ok || len(v) == 0 {
+		return []map[string]any{}
+	}
+	seen := map[string]bool{}
+	for _, id := range s.Store.Config().SeenAnnouncements {
+		seen[id] = true
+	}
+	out := make([]map[string]any, 0, len(v))
+	for _, it := range v {
+		out = append(out, map[string]any{
+			"id": it.ID, "title": it.Title, "body": it.Body, "level": it.Level,
+			"start": it.Start, "end": it.End, "url": it.URL,
+			"unread": !seen[it.ID],
+		})
+	}
+	return out
 }
 
 // adminProxyTest tests a proxy (or the saved one) against the upstream and
@@ -543,11 +732,29 @@ func (s *Server) adminImport(w http.ResponseWriter, r *http.Request) {
 
 // adminProbeOne re-tests a single model on demand and returns its fresh
 // verdict — the backend of the per-card 测试 button. Synchronous: the fetch
-// resolves when the probe verdict is in.
+// resolves when the probe verdict is in. Namespaced model ids probe their
+// custom provider instead of the free lane.
 func (s *Server) adminProbeOne(w http.ResponseWriter, model string) {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		writeJSON(w, 400, map[string]any{"ok": false, "error": "missing model"})
+		return
+	}
+	if p, upstream, ok := s.providerRoute(model); ok {
+		if !p.Enabled {
+			writeJSON(w, 400, map[string]any{"ok": false, "error": "供应商已停用，先到「自定义 API」开启"})
+			return
+		}
+		s.customProbing.Store(model)
+		defer s.customProbing.Store("")
+		r := relay.ProbeModel(context.Background(), p, upstream)
+		r.Model = model
+		s.setCustomProbe(model, r)
+		if r.TTFTMs > 0 {
+			s.Store.AddTTFTSample(model, r.TTFTMs)
+		}
+		s.logInfof("探测自定义模型 %s → %s (首字 %dms)", model, r.State, r.TTFTMs)
+		writeJSON(w, 200, map[string]any{"ok": true, "result": r})
 		return
 	}
 	r := s.Lane.ProbeOne(model)
@@ -555,6 +762,34 @@ func (s *Server) adminProbeOne(w http.ResponseWriter, model string) {
 		s.logger.Infof("手动探测 %s → %s (首字 %dms)", model, r.State, r.TTFTMs)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "result": r})
+}
+
+// currentProbingModel merges the free-lane and custom-provider probe states:
+// whichever model is under a probe right now, so the dashboard can show
+// 探测中… during a long NVIDIA queue instead of looking frozen.
+func (s *Server) currentProbingModel() string {
+	if v, ok := s.customProbing.Load().(string); ok && v != "" {
+		return v
+	}
+	return s.Lane.ProbingModel()
+}
+
+// setCustomProbe records one custom model's probe verdict for /state.
+func (s *Server) setCustomProbe(id string, r lane.ProbeResult) {
+	s.customProbeMu.Lock()
+	defer s.customProbeMu.Unlock()
+	if s.customProbe == nil {
+		s.customProbe = map[string]lane.ProbeResult{}
+	}
+	s.customProbe[id] = r
+}
+
+// customProbeOf returns the stored verdict, if any.
+func (s *Server) customProbeOf(id string) (lane.ProbeResult, bool) {
+	s.customProbeMu.Lock()
+	defer s.customProbeMu.Unlock()
+	r, ok := s.customProbe[id]
+	return r, ok
 }
 
 // adminUpdateApply downloads the pending release asset and swaps the running

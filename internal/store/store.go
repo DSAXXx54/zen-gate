@@ -39,6 +39,27 @@ type WindowState struct {
 	Maximized bool `json:"maximized"`
 }
 
+// Protocol spellings for a Provider's wire dialect.
+const (
+	ProtocolOpenAI    = "openai"
+	ProtocolAnthropic = "anthropic"
+)
+
+// Provider is one user-added upstream ("自定义 API"): a standard
+// OpenAI- or Anthropic-compatible endpoint plus its key and the model ids
+// discovered from its /models listing. Gateway model ids are namespaced as
+// "<ID>/<upstream model id>" so they can never collide with the free lane.
+type Provider struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	BaseURL  string   `json:"baseUrl"`
+	APIKey   string   `json:"apiKey,omitempty"`
+	Protocol string   `json:"protocol"`
+	Enabled  bool     `json:"enabled"`
+	Models   []string `json:"models,omitempty"`
+	Note     string   `json:"note,omitempty"` // preset provenance / key-application hint
+}
+
 type Config struct {
 	SchemaVersion        int    `json:"schemaVersion"`
 	Port                 int    `json:"port"`
@@ -52,6 +73,10 @@ type Config struct {
 	CloseToTray          bool   `json:"closeToTray"`
 	Notifications        bool   `json:"notifications"`
 	UpdateFeed           string `json:"updateFeed"`
+	AnnouncementFeed     string `json:"announcementFeed,omitempty"`
+	// SeenAnnouncements lists dismissed announcement ids so the dashboard can
+	// mark them 已读; the admin handler caps the ring.
+	SeenAnnouncements    []string `json:"seenAnnouncements,omitempty"`
 	LastVersion          string `json:"lastVersion,omitempty"`
 	StatsServerURL       string `json:"statsServerUrl,omitempty"`
 	InstallID            string `json:"installId,omitempty"`
@@ -59,6 +84,11 @@ type Config struct {
 	ProxyURL             string `json:"proxyUrl,omitempty"`
 	FailoverEnabled      bool   `json:"failoverEnabled"`
 	FailoverMax          int    `json:"failoverMax"`
+	Providers            []Provider `json:"providers,omitempty"`
+	// HiddenModels lists gateway model ids the user unchecked on the 模型 page:
+	// they stay servable if requested explicitly but disappear from agent
+	// pickers and /v1/models.
+	HiddenModels         []string   `json:"hiddenModels,omitempty"`
 	Window               WindowState `json:"window"`
 }
 
@@ -225,6 +255,14 @@ func Open() (*Store, error) {
 		cfg.SchemaVersion = 3
 		if strings.TrimSpace(cfg.UpdateFeed) == "" {
 			cfg.UpdateFeed = "https://api.github.com/repos/LAGcomcom/zen-gate/releases/latest"
+		}
+	}
+	// v6: default announcement feed — the author publishes notices by editing
+	// announcements.json in the repo; 404 just means no announcements.
+	if cfg.SchemaVersion < 6 {
+		cfg.SchemaVersion = 6
+		if strings.TrimSpace(cfg.AnnouncementFeed) == "" {
+			cfg.AnnouncementFeed = "https://raw.githubusercontent.com/LAGcomcom/zen-gate/main/announcements.json"
 		}
 	}
 	if strings.TrimSpace(cfg.InstallID) == "" {

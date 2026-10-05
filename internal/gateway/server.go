@@ -15,10 +15,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	_ "embed"
 	"time"
+	"zen-gate/internal/announce"
 	"zen-gate/internal/lane"
 	"zen-gate/internal/logx"
 	"zen-gate/internal/store"
@@ -53,10 +55,24 @@ type Server struct {
 	updateAvailable bool
 	updateVersion   string
 	updateURL       string
+	// customProbe remembers per-model verdicts for user-added providers; they
+	// are probed manually from the dashboard, never on a schedule.
+	customProbeMu sync.Mutex
+	customProbe   map[string]lane.ProbeResult
+	// customProbing is the namespaced id of the custom model under probe, so
+	// a long queue (NVIDIA free lane can take 30s+) shows as 探测中 instead
+	// of looking dead.
+	customProbing atomic.Value // string
+	// announcements is the author's published notice list, refreshed by the
+	// feed loop in main; nil until the first pull succeeds.
+	announcements atomic.Value // []announce.Item
 }
 
 // SetAgents wires the agent registry.
 func (s *Server) SetAgents(reg AgentRegistry) { s.registry = reg }
+
+// SetAnnouncements records the latest feed pull (nil = none/no feed).
+func (s *Server) SetAnnouncements(items []announce.Item) { s.announcements.Store(items) }
 
 // SetLogger wires the logx logger (as a structural interface, no import cycle).
 func (s *Server) SetLogger(l interface {
@@ -234,10 +250,12 @@ func bearerOf(r *http.Request) string {
 
 // handleListModels advertises the servable models in OpenAI shape. Reasoning
 // models additionally expose (light)/(deep) variants so a client's model
-// picker can select the effort directly.
+// picker can select the effort directly. User-added providers ("自定义 API")
+// append their discovered models under "<providerID>/<model>" ids. Models the
+// user unchecked on the 模型 page are not advertised.
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	data := []map[string]any{}
-	for _, m := range s.Lane.ServableModels() {
+	for _, m := range s.VisibleModels() {
 		data = append(data, map[string]any{
 			"id":       m.ID,
 			"object":   "model",
@@ -253,7 +271,48 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	hidden := s.hiddenSet()
+	cfg := s.Store.Config()
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		for _, m := range p.Models {
+			if hidden[p.ID+"/"+m] {
+				continue
+			}
+			data = append(data, map[string]any{
+				"id":       p.ID + "/" + m,
+				"object":   "model",
+				"owned_by": p.Name,
+			})
+		}
+	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
+}
+
+// hiddenSet snapshots the user-hidden model ids.
+func (s *Server) hiddenSet() map[string]bool {
+	set := map[string]bool{}
+	for _, h := range s.Store.Config().HiddenModels {
+		set[h] = true
+	}
+	return set
+}
+
+// VisibleModels lists the free-lane models a picker should show: everything
+// the lane advertises minus the ids the user unchecked. Routing is unaffected
+// — a hidden model requested explicitly still works.
+func (s *Server) VisibleModels() []lane.ModelInfo {
+	hidden := s.hiddenSet()
+	out := []lane.ModelInfo{}
+	for _, m := range s.Lane.ServableModels() {
+		if !hidden[m.ID] {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // handleCodexCatalog serves the model list in Codex's remote-catalog shape so

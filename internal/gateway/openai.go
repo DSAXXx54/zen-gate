@@ -213,6 +213,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, openaiError("messages must not be empty", "invalid_request_error"))
 		return
 	}
+	// Namespaced model id → user-added provider; the turn never touches the
+	// free lane in that case.
+	if p, upstream, ok := s.providerRoute(req.Model); ok {
+		if !p.Enabled {
+			writeJSON(w, 400, openaiError("自定义供应商 "+p.Name+" 已停用，请到「自定义 API」开启", "invalid_request_error"))
+			return
+		}
+		s.relayChatCompletions(w, r, req, p, upstream, agent, unified)
+		return
+	}
 	seed := SessionSeed(agent, req.User, unified)
 	turn := TurnSeed(unified)
 	ctx := r.Context()
@@ -614,6 +624,15 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	unified := convertResponsesInput(req.Input, req.Instructions)
 	if len(unified) == 0 {
 		writeJSON(w, 400, openaiError("input must not be empty", "invalid_request_error"))
+		return
+	}
+	// Namespaced model id → user-added provider (converted to its chat wire).
+	if p, upstream, ok := s.providerRoute(req.Model); ok {
+		if !p.Enabled {
+			writeJSON(w, 400, openaiError("自定义供应商 "+p.Name+" 已停用，请到「自定义 API」开启", "invalid_request_error"))
+			return
+		}
+		s.relayResponses(w, r, req, p, upstream, agent, unified)
 		return
 	}
 	model := req.Model

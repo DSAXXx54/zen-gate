@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"zen-gate/internal/agents"
+	"zen-gate/internal/announce"
 	"zen-gate/internal/gateway"
 	"zen-gate/internal/lane"
 	"zen-gate/internal/logx"
@@ -66,6 +67,12 @@ func main() {
 	cfg := st.Config()
 	if *port > 0 {
 		cfg.Port = *port
+	}
+	// v5: providers saved before model selection existed hold full catalog
+	// dumps — trim them to the recommended picks so the 模型 page shows only
+	// what was actually chosen.
+	if n := gateway.MigrateProviderSelections(st); n > 0 {
+		logger.Infof("已按推荐列表精简 %d 个自定义供应商的模型（旧版保存了整个目录）", n)
 	}
 	update.CleanupBackup() // remove the previous binary left by 一键更新
 	logger.Infof("zen-gate %s 启动 (port %d, proxy %s)", gateway.Version, cfg.Port, cfg.ProxyMode)
@@ -122,7 +129,7 @@ func main() {
 	}
 
 	syncEndpoints := func() {
-		reg.SetEndpoints(gw.BaseURL(), ln.ServableModels())
+		reg.SetEndpoints(gw.BaseURL(), gw.VisibleModels())
 		tray.SetStatus(trayStatus(st, ln))
 	}
 	ln.OnChange = syncEndpoints
@@ -189,6 +196,39 @@ func main() {
 				return
 			case <-t.C:
 				check()
+			}
+		}
+	}()
+
+	// announcement feed: pull the author's notices at boot and every 6h.
+	// An empty feed URL disables the pull entirely.
+	go func() {
+		pull := func() {
+			feed := strings.TrimSpace(st.Config().AnnouncementFeed)
+			if feed == "" {
+				gw.SetAnnouncements(nil)
+				return
+			}
+			items, err := announce.Fetch(ctx, feed, lane.Client())
+			if err != nil {
+				logger.Warnf("公告拉取失败: %v", err)
+				return
+			}
+			gw.SetAnnouncements(items)
+			if len(items) > 0 {
+				logger.Infof("公告已更新: %d 条生效中", len(items))
+			}
+		}
+		time.Sleep(20 * time.Second)
+		pull()
+		t := time.NewTicker(6 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				pull()
 			}
 		}
 	}()

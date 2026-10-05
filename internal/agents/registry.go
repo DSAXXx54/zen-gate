@@ -67,6 +67,7 @@ func NewRegistry(st *store.Store) *Registry {
 			newAider(),
 			newQwenCode(),
 			newContinueIDE(),
+			newWorkBuddy(),
 		},
 	}
 }
@@ -104,6 +105,9 @@ func (r *Registry) Views() []View {
 		if installed && id == "zcode" && processRunning("ZCode.exe", "zcode.exe") {
 			v.Warn = "ZCode 正在运行，启用后需重启 ZCode 生效"
 		}
+		if installed && id == "workbuddy" && processRunning("WorkBuddy.exe") {
+			v.Warn = "WorkBuddy 正在运行，配置保存后约 1 秒自动热加载，无需重启"
+		}
 		out = append(out, v)
 	}
 	return out
@@ -133,6 +137,23 @@ func (r *Registry) Disable(id string) error {
 	r.st.Config().EnabledAgents[id] = false
 	_ = r.st.Save()
 	return err
+}
+
+// ResyncEnabled re-injects the config of every enabled adapter with the
+// current model list. Run after the user changes model visibility so agent
+// pickers follow without toggling each adapter by hand; adapters back up and
+// write atomically, so a repeat Enable is safe.
+func (r *Registry) ResyncEnabled() int {
+	n := 0
+	for _, a := range r.agents {
+		if enabled, _, err := a.IsEnabled(); err != nil || !enabled {
+			continue
+		}
+		if err := a.Enable(r.options()); err == nil {
+			n++
+		}
+	}
+	return n
 }
 
 func (r *Registry) byID(id string) (Agent, bool) {
