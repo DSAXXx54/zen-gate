@@ -1,11 +1,20 @@
 {
   "announcements": [
     {
+      "id": "2026-10-06-v1.3.6-release",
+      "title": "v1.3.6 发布：新增 Qoder 适配，WorkBuddy 接入修复",
+      "body": "本次更新带来：\n1. 新增 Qoder 适配——自动向 ~/.qoder-cn/settings.json 写入自定义供应商（与内置「添加模型」对话框同款格式），IDE 本地直连，模型选择器出现全部免费模型；\n2. 修复 WorkBuddy 接入：不再覆盖 WorkBuddy 内置模型，免费模型以自定义模型形式并入选择器，保存后约 1 秒自动热加载；\n3. 已启用 WorkBuddy 的用户建议在「Agent 适配」页关闭后重新开启一次，即可套用新的注入格式。",
+      "level": "info",
+      "start": "2026-10-06",
+      "url": "https://github.com/LAGcomcom/zen-gate/releases/latest"
+    },
+    {
       "id": "2026-10-05-v1.3.0-release",
       "title": "v1.3.0 发布：自定义 API 接入 + 模型选择管理",
       "body": "本次更新带来：\n1. 「自定义 API」页——接入你自己的上游（OpenAI / Anthropic 兼容），内置 NVIDIA NIM、Gemini、魔搭等 13 个免费商预设，拉取模型后可勾选哪些入库；\n2. 「模型」页每张卡片新增「选用」开关——勾选的模型才会出现在 Agent 的选择器里，支持一键隐藏全部不可用；\n3. 自定义模型支持手动探测可用性与首字延迟；\n4. 新增公告系统（你正在看的这个）。",
       "level": "info",
       "start": "2026-10-05",
+      "end": "2026-10-06",
       "url": "https://github.com/LAGcomcom/zen-gate/releases/latest"
     }
   ]
