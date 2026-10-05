@@ -271,8 +271,11 @@ func Open() (*Store, error) {
 	// default with ref=main and later builds with ref=master, so match any raw
 	// URL of this repo's announcements.json; an explicitly customized feed
 	// pointing elsewhere is left alone.
-	if cfg.SchemaVersion < 7 {
-		cfg.SchemaVersion = 7
+	// v8: v1.3.1-v1.3.3 already bumped the schema past v7 while carrying the
+	// buggy exact-match replacement, so those installs are stuck on the
+	// unreachable raw URL — re-run the swap one version later.
+	if cfg.SchemaVersion < 8 {
+		cfg.SchemaVersion = 8
 		feed := strings.TrimSpace(cfg.AnnouncementFeed)
 		if feed == "" ||
 			strings.Contains(feed, "raw.githubusercontent.com") &&
