@@ -362,7 +362,20 @@ func (s *Server) InjectableModels() []lane.ModelInfo {
 // provider. Deliberately unauthenticated: the listing is non-sensitive, and a
 // 401 here makes Codex surface a login prompt instead of the models.
 func (s *Server) handleCodexCatalog(w http.ResponseWriter, r *http.Request) {
-	models, av, _ := s.Lane.Snapshot()
+	// InjectableModels (not the raw lane snapshot) so 自定义 API models survive
+	// the picker's live refresh instead of being drowned back out.
+	models := s.InjectableModels()
+	_, av, _ := s.Lane.Snapshot()
+	customName := map[string]string{}
+	for i := range s.Store.Config().Providers {
+		p := &s.Store.Config().Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		for _, m := range p.Models {
+			customName[p.ID+"/"+m] = p.Name
+		}
+	}
 	priority := map[string]int{
 		lane.StateAvailable: 100,
 		lane.StateUnknown:   50,
@@ -391,16 +404,20 @@ func (s *Server) handleCodexCatalog(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for _, m := range models {
 		desc := "免费车道 · 当前不可用"
-		switch stateOf(m.ID) {
-		case lane.StateAvailable:
-			desc = "免费车道 · 实测可用"
-		case lane.StateThrottled:
-			desc = "免费车道 · 已限额，稍后恢复"
-		case lane.StateUnknown:
-			desc = "免费车道 · 尚未探测"
-		}
-		if m.RegionSensitive {
-			desc += " · 可能被地区门拦截"
+		if name, ok := customName[m.ID]; ok {
+			desc = "自定义 API · " + name
+		} else {
+			switch stateOf(m.ID) {
+			case lane.StateAvailable:
+				desc = "免费车道 · 实测可用"
+			case lane.StateThrottled:
+				desc = "免费车道 · 已限额，稍后恢复"
+			case lane.StateUnknown:
+				desc = "免费车道 · 尚未探测"
+			}
+			if m.RegionSensitive {
+				desc += " · 可能被地区门拦截"
+			}
 		}
 		lv := levels
 		if !m.Reasoning {

@@ -1,6 +1,10 @@
 package gateway
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"zen-gate/internal/store"
@@ -53,5 +57,47 @@ func TestInjectableModelsMergesCustomProviders(t *testing.T) {
 	}
 	if len(ids) <= nFree {
 		t.Fatalf("注入清单应比免费车道多出自定义模型: %d vs %d", len(ids), nFree)
+	}
+}
+
+// TestCodexCatalogIncludesCustomModels: the picker's live-refresh endpoint
+// must not drown custom-provider models back out.
+func TestCodexCatalogIncludesCustomModels(t *testing.T) {
+	up := fakeUpstream(t, []string{`{"choices":[{"delta":{"content":"x"}}]}`, `data: [DONE]`})
+	defer up.Close()
+	s := newTestServer(t, up)
+
+	cfg := s.Store.Config()
+	cfg.Providers = append(cfg.Providers, store.Provider{
+		ID: "nvidia-nim", Name: "NVIDIA NIM", BaseURL: "https://integrate.api.nvidia.com/v1",
+		Protocol: "openai", Enabled: true,
+		Models: []string{"deepseek-ai/deepseek-v4.1-flash"},
+	})
+
+	rec := httptest.NewRecorder()
+	s.handleCodexCatalog(rec, httptest.NewRequest(http.MethodGet, "/v1/codex-catalog", nil))
+	if rec.Code != 200 {
+		t.Fatalf("codex catalog status = %d", rec.Code)
+	}
+	var out struct {
+		Models []struct {
+			Slug        string `json:"slug"`
+			Description string `json:"description"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range out.Models {
+		if m.Slug == "nvidia-nim/deepseek-ai/deepseek-v4.1-flash" {
+			found = true
+			if !strings.Contains(m.Description, "NVIDIA NIM") {
+				t.Fatalf("自定义模型描述应带供应商名，得到 %q", m.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("codex 在线目录应包含自定义供应商模型")
 	}
 }
