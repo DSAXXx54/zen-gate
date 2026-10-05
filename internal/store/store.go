@@ -262,7 +262,18 @@ func Open() (*Store, error) {
 	if cfg.SchemaVersion < 6 {
 		cfg.SchemaVersion = 6
 		if strings.TrimSpace(cfg.AnnouncementFeed) == "" {
-			cfg.AnnouncementFeed = "https://raw.githubusercontent.com/LAGcomcom/zen-gate/main/announcements.json"
+			cfg.AnnouncementFeed = "https://raw.githubusercontent.com/LAGcomcom/zen-gate/master/announcements.json"
+		}
+	}
+	// v7: raw.githubusercontent.com is unreachable from some networks — move
+	// the default (and anyone still on it) to the Contents API on
+	// api.github.com, the same host the update checker uses. An explicitly
+	// customized feed is left alone.
+	if cfg.SchemaVersion < 7 {
+		cfg.SchemaVersion = 7
+		const legacyRaw = "https://raw.githubusercontent.com/LAGcomcom/zen-gate/master/announcements.json"
+		if cfg.AnnouncementFeed == legacyRaw || strings.TrimSpace(cfg.AnnouncementFeed) == "" {
+			cfg.AnnouncementFeed = "https://api.github.com/repos/LAGcomcom/zen-gate/contents/announcements.json?ref=master"
 		}
 	}
 	if strings.TrimSpace(cfg.InstallID) == "" {

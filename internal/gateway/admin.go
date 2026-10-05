@@ -105,6 +105,13 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, rest string
 		s.adminModelVisibility(w, r)
 	case rest == "announcements/read" && r.Method == http.MethodPost:
 		s.adminAnnouncementRead(w, r)
+	case rest == "announcements/refresh" && r.Method == http.MethodPost:
+		if s.announcementPull == nil {
+			writeJSON(w, 503, map[string]any{"ok": false, "error": "公告拉取未就绪"})
+			return
+		}
+		go s.announcementPull()
+		writeJSON(w, 200, map[string]any{"ok": true})
 	default:
 		writeJSON(w, 404, map[string]any{"error": "not found"})
 	}

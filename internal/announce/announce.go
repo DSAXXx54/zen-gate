@@ -6,11 +6,13 @@ package announce
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -38,9 +40,16 @@ type feedFile struct {
 
 const dateLayout = "2006-01-02"
 
+// DefaultFeedURL is the compiled-in announcement source: the GitHub Contents
+// API for announcements.json on the project's main branch. It rides
+// api.github.com — the same host the update checker already depends on —
+// because raw.githubusercontent.com is unreachable from some networks.
+const DefaultFeedURL = "https://api.github.com/repos/LAGcomcom/zen-gate/contents/announcements.json?ref=master"
+
 // Fetch pulls and parses the feed, keeping only entries active today. A 404
-// yields (nil, nil). Entries outside their [start,end] window are dropped and
-// the rest are ordered critical → warn → info, newest first within a level.
+// yields (nil, nil). Both shapes are accepted: the plain
+// {"announcements":[…]} file and the GitHub Contents-API envelope
+// ({"content":"<base64>","encoding":"base64"}) that the default URL returns.
 func Fetch(ctx context.Context, url string, client *http.Client) ([]Item, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -62,8 +71,31 @@ func Fetch(ctx context.Context, url string, client *http.Client) ([]Item, error)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
+	return Parse(data)
+}
+
+// Parse decodes a feed payload in either shape and filters to today's window.
+func Parse(data []byte) ([]Item, error) {
+	var envelope struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	payload := data
+	if json.Unmarshal(data, &envelope) == nil && envelope.Encoding == "base64" && envelope.Content != "" {
+		clean := strings.Map(func(r rune) rune {
+			if r == '\n' || r == '\r' || r == ' ' {
+				return -1
+			}
+			return r
+		}, envelope.Content)
+		decoded, err := base64.StdEncoding.DecodeString(clean)
+		if err != nil {
+			return nil, fmt.Errorf("公告 base64 解码失败: %v", err)
+		}
+		payload = decoded
+	}
 	var f feedFile
-	if err := json.Unmarshal(data, &f); err != nil {
+	if err := json.Unmarshal(payload, &f); err != nil {
 		return nil, fmt.Errorf("公告格式不是合法 JSON: %v", err)
 	}
 	return Active(f.Announcements, time.Now()), nil

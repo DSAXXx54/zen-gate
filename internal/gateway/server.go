@@ -66,6 +66,9 @@ type Server struct {
 	// announcements is the author's published notice list, refreshed by the
 	// feed loop in main; nil until the first pull succeeds.
 	announcements atomic.Value // []announce.Item
+	// announcementPull re-runs the feed fetch on demand (dashboard 刷新 button);
+	// wired from main alongside the periodic loop.
+	announcementPull func()
 }
 
 // SetAgents wires the agent registry.
@@ -73,6 +76,9 @@ func (s *Server) SetAgents(reg AgentRegistry) { s.registry = reg }
 
 // SetAnnouncements records the latest feed pull (nil = none/no feed).
 func (s *Server) SetAnnouncements(items []announce.Item) { s.announcements.Store(items) }
+
+// SetAnnouncementPull wires the on-demand feed refresh.
+func (s *Server) SetAnnouncementPull(fn func()) { s.announcementPull = fn }
 
 // SetLogger wires the logx logger (as a structural interface, no import cycle).
 func (s *Server) SetLogger(l interface {

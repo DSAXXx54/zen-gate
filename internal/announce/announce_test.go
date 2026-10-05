@@ -2,6 +2,7 @@ package announce
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -53,6 +54,22 @@ func TestFetchBadJSON(t *testing.T) {
 	defer up.Close()
 	if _, err := Fetch(context.Background(), up.URL, up.Client()); err == nil {
 		t.Fatal("want error for non-JSON body")
+	}
+}
+
+func TestFetchGitHubContentsEnvelope(t *testing.T) {
+	inner := `{"announcements":[{"id":"c1","title":"来自 Contents API","level":"warn"}]}`
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"content":"` + base64.StdEncoding.EncodeToString([]byte(inner)) + `","encoding":"base64"}`))
+	}))
+	defer up.Close()
+	items, err := Fetch(context.Background(), up.URL, up.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != "c1" || items[0].Level != LevelWarn {
+		t.Fatalf("items = %+v", items)
 	}
 }
 

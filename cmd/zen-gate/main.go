@@ -202,25 +202,26 @@ func main() {
 
 	// announcement feed: pull the author's notices at boot and every 6h.
 	// An empty feed URL disables the pull entirely.
-	go func() {
-		pull := func() {
-			feed := strings.TrimSpace(st.Config().AnnouncementFeed)
-			if feed == "" {
-				gw.SetAnnouncements(nil)
-				return
-			}
-			items, err := announce.Fetch(ctx, feed, lane.Client())
-			if err != nil {
-				logger.Warnf("公告拉取失败: %v", err)
-				return
-			}
-			gw.SetAnnouncements(items)
-			if len(items) > 0 {
-				logger.Infof("公告已更新: %d 条生效中", len(items))
-			}
+	pullAnnouncements := func() {
+		feed := strings.TrimSpace(st.Config().AnnouncementFeed)
+		if feed == "" {
+			gw.SetAnnouncements(nil)
+			return
 		}
+		items, err := announce.Fetch(ctx, feed, lane.Client())
+		if err != nil {
+			logger.Warnf("公告拉取失败: %v", err)
+			return
+		}
+		gw.SetAnnouncements(items)
+		if len(items) > 0 {
+			logger.Infof("公告已更新: %d 条生效中", len(items))
+		}
+	}
+	gw.SetAnnouncementPull(pullAnnouncements)
+	go func() {
 		time.Sleep(20 * time.Second)
-		pull()
+		pullAnnouncements()
 		t := time.NewTicker(6 * time.Hour)
 		defer t.Stop()
 		for {
@@ -228,7 +229,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				pull()
+				pullAnnouncements()
 			}
 		}
 	}()
