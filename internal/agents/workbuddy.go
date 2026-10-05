@@ -122,7 +122,12 @@ func (w *workBuddy) Enable(o Options) error {
 		})
 	}
 	doc["models"] = entries
-	doc["availableModels"] = mergeAvailable(doc["availableModels"], o.Models)
+	// availableModels 是模型下拉框的白名单：一旦写入，WorkBuddy 内置模型全部
+	// 被隐藏。留空时 CLI 以 MergeStrategy.Merge 并入自定义模型，内置模型不受
+	// 影响——因此只有用户本就维护了非空白名单时才追加。
+	if avail := availableIDs(doc["availableModels"]); len(avail) > 0 {
+		doc["availableModels"] = mergeAvailable(doc["availableModels"], o.Models)
+	}
 
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
@@ -150,10 +155,9 @@ func (w *workBuddy) Disable() error {
 	}
 	entries := foreignEntries(doc)
 	doc["models"] = entries
-	if avail := availableIDsWithout(doc["availableModels"], ours); len(avail) > 0 {
-		doc["availableModels"] = avail
-	} else {
-		delete(doc, "availableModels")
+	if _, has := doc["availableModels"]; has {
+		// 只从既有白名单里摘除我们的 id（与 CLI deleteCustomModel 一致）。
+		doc["availableModels"] = availableIDsWithout(doc["availableModels"], ours)
 	}
 	if len(entries) == 0 {
 		delete(doc, "models")

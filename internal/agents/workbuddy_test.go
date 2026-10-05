@@ -49,13 +49,13 @@ func wbReadModel(t *testing.T, dir string) map[string]any {
 	return doc
 }
 
-func wbBackups(t *testing.T) []string {
+func agentBackupNames(t *testing.T, agentID string) []string {
 	t.Helper()
 	root := os.Getenv("ZEN_GATE_HOME")
 	if root == "" {
 		t.Fatal("ZEN_GATE_HOME 未设置")
 	}
-	dirEntries, err := os.ReadDir(filepath.Join(root, "backups", "workbuddy"))
+	dirEntries, err := os.ReadDir(filepath.Join(root, "backups", agentID))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -68,6 +68,8 @@ func wbBackups(t *testing.T) []string {
 	}
 	return names
 }
+
+func wbBackups(t *testing.T) []string { return agentBackupNames(t, "workbuddy") }
 
 func TestWorkBuddyDetect(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nothing")
@@ -107,9 +109,10 @@ func TestWorkBuddyEnableDisableRoundTrip(t *testing.T) {
 	if url, _ := first["url"].(string); url != "http://127.0.0.1:8787/v1/chat/completions" {
 		t.Fatalf("url 应为完整端点，得到 %q", url)
 	}
-	avail, _ := doc["availableModels"].([]any)
-	if len(avail) != 2 {
-		t.Fatalf("availableModels 应含 2 个 id，得到 %v", avail)
+	// availableModels 是下拉框白名单，绝不能主动创建，否则 WorkBuddy 内置模型
+	// 会被全部隐藏。
+	if _, has := doc["availableModels"]; has {
+		t.Fatalf("不应创建 availableModels 白名单，得到 %v", doc["availableModels"])
 	}
 	if enabled, _, _ := w.IsEnabled(); !enabled {
 		t.Fatal("Enable 后 IsEnabled 应为 true")
@@ -186,6 +189,30 @@ func TestWorkBuddyPreservesUserModels(t *testing.T) {
 	}
 	if enabled, _, _ := w.IsEnabled(); enabled {
 		t.Fatal("Disable 后不应再是启用态")
+	}
+}
+
+func TestWorkBuddyAvailableModelsWhitelist(t *testing.T) {
+	t.Setenv("ZEN_GATE_HOME", t.TempDir())
+	// 用户已有非空白名单 → 追加我们的 id；空白名单 → 原样保留，绝不变成白名单。
+	dir := wbConfig(t, `{"models":[],"availableModels":[]}`)
+	w := newWorkBuddy()
+	if err := w.Enable(wbOptions()); err != nil {
+		t.Fatal(err)
+	}
+	doc := wbReadModel(t, dir)
+	if avail, _ := doc["availableModels"].([]any); len(avail) != 0 {
+		t.Fatalf("空 availableModels 应保持为空，得到 %v", avail)
+	}
+
+	dir = wbConfig(t, `{"availableModels":["my-model"]}`)
+	if err := w.Enable(wbOptions()); err != nil {
+		t.Fatal(err)
+	}
+	doc = wbReadModel(t, dir)
+	avail, _ := doc["availableModels"].([]any)
+	if len(avail) != 3 || avail[0] != "my-model" {
+		t.Fatalf("非空白名单应保留用户项并追加 2 个，得到 %v", avail)
 	}
 }
 
