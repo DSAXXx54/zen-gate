@@ -267,12 +267,16 @@ func Open() (*Store, error) {
 	}
 	// v7: raw.githubusercontent.com is unreachable from some networks — move
 	// the default (and anyone still on it) to the Contents API on
-	// api.github.com, the same host the update checker uses. An explicitly
-	// customized feed is left alone.
+	// api.github.com, the same host the update checker uses. v1.3.0 wrote the
+	// default with ref=main and later builds with ref=master, so match any raw
+	// URL of this repo's announcements.json; an explicitly customized feed
+	// pointing elsewhere is left alone.
 	if cfg.SchemaVersion < 7 {
 		cfg.SchemaVersion = 7
-		const legacyRaw = "https://raw.githubusercontent.com/LAGcomcom/zen-gate/master/announcements.json"
-		if cfg.AnnouncementFeed == legacyRaw || strings.TrimSpace(cfg.AnnouncementFeed) == "" {
+		feed := strings.TrimSpace(cfg.AnnouncementFeed)
+		if feed == "" ||
+			strings.Contains(feed, "raw.githubusercontent.com") &&
+				strings.Contains(feed, "zen-gate") && strings.HasSuffix(feed, "announcements.json") {
 			cfg.AnnouncementFeed = "https://api.github.com/repos/LAGcomcom/zen-gate/contents/announcements.json?ref=master"
 		}
 	}
