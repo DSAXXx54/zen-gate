@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestFetchParsesAndFilters(t *testing.T) {
+func TestFetchParsesAllAndSplits(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"announcements":[
@@ -25,11 +25,17 @@ func TestFetchParsesAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("items = %+v, want a4 (critical) then a1 (warn)", items)
+	if len(items) != 4 {
+		t.Fatalf("fetch = %d items, want 4 valid", len(items))
 	}
-	if items[0].ID != "a4" || items[1].ID != "a1" {
-		t.Fatalf("order = %v, %v", items[0].ID, items[1].ID)
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.Local)
+	active := Active(items, now)
+	if len(active) != 2 || active[0].ID != "a4" || active[1].ID != "a1" {
+		t.Fatalf("active = %+v", active)
+	}
+	ended := EndedItems(items, now)
+	if len(ended) != 1 || ended[0].ID != "a2" {
+		t.Fatalf("ended = %+v", ended)
 	}
 }
 
@@ -73,9 +79,13 @@ func TestFetchGitHubContentsEnvelope(t *testing.T) {
 	}
 }
 
-func TestActiveDefaultsLevel(t *testing.T) {
+func TestParseDefaultsLevel(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.Local)
-	out := Active([]Item{{ID: "x", Title: "t", Level: "weird"}}, now)
+	items, err := Parse([]byte(`{"announcements":[{"id":"x","title":"t","level":"weird"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := Active(items, now)
 	if len(out) != 1 || out[0].Level != LevelInfo {
 		t.Fatalf("out = %+v", out)
 	}

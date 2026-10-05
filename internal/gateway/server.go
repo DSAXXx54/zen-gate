@@ -76,7 +76,9 @@ type Server struct {
 // SetAgents wires the agent registry.
 func (s *Server) SetAgents(reg AgentRegistry) { s.registry = reg }
 
-// SetAnnouncements records the latest feed pull (nil = none/no feed).
+// SetAnnouncements records the latest feed pull — every parsed entry, active
+// or ended (nil = none/no feed). adminState splits them for the dashboard so
+// the 公告 card always has content to pin.
 func (s *Server) SetAnnouncements(items []announce.Item) { s.announcements.Store(items) }
 
 // SetAnnouncementPull wires the on-demand feed refresh.

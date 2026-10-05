@@ -580,34 +580,39 @@ function renderDash(s){
       <span>发现新版本 <b>${esc(s.settings.updateVersion)}</b>（当前 ${esc(s.version)}）</span>
       <span style="display:flex; gap:8px; align-items:center"><button class="act" id="upd-apply">一键更新</button><a href="${esc(s.settings.updateURL||"#")}" target="_blank" style="font-size:13px">发布页 →</a></span>
     </div>` : "";
-  // 公告：critical/warn/info 分级着色，未读高亮 + 可标记已读
+  // 公告卡常驻总览：critical/warn/info 分级着色，未读高亮 + 可标记已读；
+  // 已结束的归档在下方面板，没有公告时也保留卡位。
   const anns = s.announcements || [];
-  const annHtml = anns.length ? `
+  const annArch = s.announcementArchive || [];
+  const annItem = (a, ended) => {
+    const lv = {critical:"var(--bad)",warn:"var(--warn)",info:"var(--accent)"}[a.level]||"var(--accent)";
+    return `<div class="annitem" style="border-left:3px solid ${lv}; opacity:${ended||!a.unread?.72:1}">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap">
+        <span style="font-weight:600; font-size:13px">${a.unread&&!ended?`<span class="ann-dot" style="background:${lv}"></span>`:""}${esc(a.title)}
+          ${a.level==="critical"?'<span class="pill bad">重要</span>':a.level==="warn"?'<span class="pill warn">注意</span>':""}
+          ${ended?'<span class="pill hidsync">已结束</span>':""}
+          ${a.start?`<span class="muted" style="font-size:11px; margin-left:6px">${esc(a.start)}${a.end?" ~ "+esc(a.end):""}</span>`:""}
+        </span>
+        <span style="display:flex; gap:8px; align-items:center">
+          ${a.url?`<a href="${esc(a.url)}" target="_blank" style="font-size:12px; color:var(--accent)">详情 →</a>`:""}
+          ${a.unread&&!ended?`<button class="ghost ann-read" data-id="${esc(a.id)}" style="padding:2px 10px; font-size:11.5px">知道了</button>`:""}
+        </span>
+      </div>
+      ${a.body?`<div class="muted" style="font-size:12px; margin-top:4px; white-space:pre-wrap">${esc(a.body)}</div>`:""}
+    </div>`;
+  };
+  const annHtml = `
     <div class="card" style="padding:12px 14px; margin-bottom:12px">
       <div class="row" style="justify-content:space-between; margin-bottom:8px">
-        <h3 style="margin:0">公告 <span class="muted" style="font-size:11px">${anns.length} 条生效中</span></h3>
+        <h3 style="margin:0">公告 <span class="muted" style="font-size:11px">${anns.length?anns.length+" 条生效中":"暂无生效中的公告"}</span></h3>
         <span style="display:flex; gap:10px; align-items:center">
           <button class="ghost" id="ann-refresh" style="padding:2px 10px; font-size:11.5px">刷新</button>
           <span class="muted" style="font-size:11px">每 6 小时同步</span>
         </span>
       </div>
-      ${anns.slice(0,6).map(a=>{
-        const lv = {critical:"var(--bad)",warn:"var(--warn)",info:"var(--accent)"}[a.level]||"var(--accent)";
-        return `<div class="annitem" style="border-left:3px solid ${lv}; opacity:${a.unread?1:.72}">
-          <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap">
-            <span style="font-weight:600; font-size:13px">${a.unread?`<span class="ann-dot" style="background:${lv}"></span>`:""}${esc(a.title)}
-              ${a.level==="critical"?'<span class="pill bad">重要</span>':a.level==="warn"?'<span class="pill warn">注意</span>':""}
-              ${a.start?`<span class="muted" style="font-size:11px; margin-left:6px">${esc(a.start)}${a.end?" ~ "+esc(a.end):""}</span>`:""}
-            </span>
-            <span style="display:flex; gap:8px; align-items:center">
-              ${a.url?`<a href="${esc(a.url)}" target="_blank" style="font-size:12px; color:var(--accent)">详情 →</a>`:""}
-              ${a.unread?`<button class="ghost ann-read" data-id="${esc(a.id)}" style="padding:2px 10px; font-size:11.5px">知道了</button>`:""}
-            </span>
-          </div>
-          ${a.body?`<div class="muted" style="font-size:12px; margin-top:4px; white-space:pre-wrap">${esc(a.body)}</div>`:""}
-        </div>`;
-      }).join("")}
-    </div>` : "";
+      ${anns.length ? anns.slice(0,6).map(a=>annItem(a,false)).join("") : `<div class="muted" style="font-size:12px">暂无公告——作者发布后这里会自动出现（每 6 小时同步，或点「刷新」立即拉取）。</div>`}
+      ${annArch.length ? `<div class="muted" style="font-size:11px; margin:10px 0 2px">已结束</div>` + annArch.slice(0,5).map(a=>annItem(a,true)).join("") : ""}
+    </div>`;
   const fail = day ? day.failed : 0;
   const failPill = fail > 0 ? ` <span class="pill bad">${fail} 失败</span>` : "";
 
@@ -1706,7 +1711,7 @@ let lastSig = "";
 async function refresh(){
   const j = await api("/state"); if(!j) return;
   if(typeof j.uptimeSec === "number") bootAt = Date.now() - j.uptimeSec*1000;
-  const sig = JSON.stringify([j.models,j.agents,j.stats,j.settings,j.egress,j.mainKey,j.baseURL,j.port,j.providers,j.announcements]);
+  const sig = JSON.stringify([j.models,j.agents,j.stats,j.settings,j.egress,j.mainKey,j.baseURL,j.port,j.providers,j.announcements,j.announcementArchive]);
   if (sig === lastSig){ tickUptime(); return; }
   lastSig = sig; STATE = j; render();
 }

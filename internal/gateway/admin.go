@@ -255,6 +255,7 @@ func (s *Server) adminState(w http.ResponseWriter) {
 	if s.registry != nil {
 		agentsView = s.registry.Views()
 	}
+	activeAnnouncements, endedAnnouncements := s.announcementViews()
 	writeJSON(w, 200, map[string]any{
 		"baseURL":   s.BaseURL(),
 		"port":      cfg.Port,
@@ -283,11 +284,12 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			"failoverEnabled":      cfg.FailoverEnabled,
 			"failoverMax":          cfg.FailoverMax,
 		},
-		"probingModel":    s.currentProbingModel(),
-		"providers":       s.providerViews(),
-		"providerPresets": relay.Presets,
-		"announcements":   s.announcementViews(),
-		"version":         Version,
+		"probingModel":         s.currentProbingModel(),
+		"providers":            s.providerViews(),
+		"providerPresets":      relay.Presets,
+		"announcements":        activeAnnouncements,
+		"announcementArchive":  endedAnnouncements,
+		"version":              Version,
 		"startedAt":       startedAt.Format("2006-01-02 15:04:05"),
 		"uptime":          time.Since(startedAt).Round(time.Second).String(),
 		"uptimeSec":       int64(time.Since(startedAt).Seconds()),
@@ -552,26 +554,44 @@ func (s *Server) adminAnnouncementRead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// announcementViews is the admin-facing snapshot: active items with an
-// 已读 flag computed against the seen ring.
-func (s *Server) announcementViews() []map[string]any {
+// announcementViews is the admin-facing snapshot: active items (with an 已读
+// flag computed against the seen ring) plus a capped archive of ended ones so
+// the 公告 card on the dash always has something pinned.
+func (s *Server) announcementViews() (active, archive []map[string]any) {
+	none := func() []map[string]any { return []map[string]any{} }
 	v, ok := s.announcements.Load().([]announce.Item)
 	if !ok || len(v) == 0 {
-		return []map[string]any{}
+		return none(), none()
 	}
 	seen := map[string]bool{}
 	for _, id := range s.Store.Config().SeenAnnouncements {
 		seen[id] = true
 	}
-	out := make([]map[string]any, 0, len(v))
-	for _, it := range v {
-		out = append(out, map[string]any{
+	view := func(it announce.Item) map[string]any {
+		return map[string]any{
 			"id": it.ID, "title": it.Title, "body": it.Body, "level": it.Level,
 			"start": it.Start, "end": it.End, "url": it.URL,
 			"unread": !seen[it.ID],
-		})
+		}
 	}
-	return out
+	now := time.Now()
+	for _, it := range announce.Active(v, now) {
+		active = append(active, view(it))
+	}
+	archiveItems := announce.EndedItems(v, now)
+	if len(archiveItems) > 5 {
+		archiveItems = archiveItems[:5]
+	}
+	for _, it := range archiveItems {
+		archive = append(archive, view(it))
+	}
+	if active == nil {
+		active = none()
+	}
+	if archive == nil {
+		archive = none()
+	}
+	return active, archive
 }
 
 // adminProxyTest tests a proxy (or the saved one) against the upstream and
