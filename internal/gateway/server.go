@@ -328,6 +328,35 @@ func (s *Server) VisibleModels() []lane.ModelInfo {
 	return out
 }
 
+// InjectableModels is the model set handed to the agent adapters: the visible
+// free-lane models plus every enabled custom-provider model as
+// "<providerID>/<model>", minus the ids unchecked on the 模型 page. Without
+// the custom half, 自定义 API models never reach the agents' static config and
+// their pickers show the free lane only.
+func (s *Server) InjectableModels() []lane.ModelInfo {
+	out := s.VisibleModels()
+	hidden := s.hiddenSet()
+	cfg := s.Store.Config()
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		for _, m := range p.Models {
+			id := p.ID + "/" + m
+			if hidden[id] {
+				continue
+			}
+			out = append(out, lane.ModelInfo{
+				ID:   id,
+				Name: id,
+				Wire: "chat",
+			})
+		}
+	}
+	return out
+}
+
 // handleCodexCatalog serves the model list in Codex's remote-catalog shape so
 // the desktop model picker can offer the free models under the zen_gate
 // provider. Deliberately unauthenticated: the listing is non-sensitive, and a

@@ -129,7 +129,7 @@ func main() {
 	}
 
 	syncEndpoints := func() {
-		reg.SetEndpoints(gw.BaseURL(), gw.VisibleModels())
+		reg.SetEndpoints(gw.BaseURL(), gw.InjectableModels())
 		tray.SetStatus(trayStatus(st, ln))
 	}
 	ln.OnChange = syncEndpoints

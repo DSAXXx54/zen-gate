@@ -190,11 +190,20 @@ func (q *qoder) ownProviders(doc map[string]any) map[string]any {
 func (q *qoder) buildEntry(o Options) map[string]any {
 	models := make([]any, 0, len(o.Models))
 	for _, m := range o.Models {
+		// 自定义供应商的模型没有目录元数据；0 交给 IDE 自己的对话框默认值。
+		cw := m.ContextWindow
+		if cw <= 0 {
+			cw = 200000
+		}
+		mo := m.MaxOutput
+		if mo <= 0 {
+			mo = 8192
+		}
 		entry := map[string]any{
 			"model":           m.ID,
 			"displayName":     m.Name,
-			"contextWindow":   m.ContextWindow,
-			"maxOutputTokens": m.MaxOutput,
+			"contextWindow":   cw,
+			"maxOutputTokens": mo,
 			"capabilities": map[string]any{
 				"vision": m.Vision,
 			},
