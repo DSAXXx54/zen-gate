@@ -581,7 +581,7 @@ function renderDash(s){
       <span style="display:flex; gap:8px; align-items:center"><button class="act" id="upd-apply">一键更新</button><a href="${esc(s.settings.updateURL||"#")}" target="_blank" style="font-size:13px">发布页 →</a></span>
     </div>` : "";
   // 公告卡常驻总览：critical/warn/info 分级着色，未读高亮 + 可标记已读；
-  // 已结束的归档在下方面板，没有公告时也保留卡位。
+  // 卡片只显示最新 2 条，「过往公告」弹窗里看全部（含已结束归档）。
   const anns = s.announcements || [];
   const annArch = s.announcementArchive || [];
   const annItem = (a, ended) => {
@@ -610,8 +610,8 @@ function renderDash(s){
           <span class="muted" style="font-size:11px">每 6 小时同步</span>
         </span>
       </div>
-      ${anns.length ? anns.slice(0,6).map(a=>annItem(a,false)).join("") : `<div class="muted" style="font-size:12px">暂无公告——作者发布后这里会自动出现（每 6 小时同步，或点「刷新」立即拉取）。</div>`}
-      ${annArch.length ? `<div class="muted" style="font-size:11px; margin:10px 0 2px">已结束</div>` + annArch.slice(0,5).map(a=>annItem(a,true)).join("") : ""}
+      ${anns.length ? anns.slice(0,2).map(a=>annItem(a,false)).join("") : `<div class="muted" style="font-size:12px">暂无公告——作者发布后这里会自动出现（每 6 小时同步，或点「刷新」立即拉取）。</div>`}
+      ${(anns.length>2||annArch.length) ? `<div style="margin-top:8px"><button class="ghost" id="ann-history" style="padding:2px 10px; font-size:11.5px">过往公告（共 ${anns.length+annArch.length} 条）</button></div>` : ""}
     </div>`;
   const fail = day ? day.failed : 0;
   const failPill = fail > 0 ? ` <span class="pill bad">${fail} 失败</span>` : "";
@@ -695,6 +695,37 @@ function renderDash(s){
     toast("拉取中，几秒后刷新…");
     setTimeout(refresh, 3000);
   };
+  // 过往公告弹窗：生效中 + 已结束全量列出；已读标记后关弹窗刷新卡片。
+  const openAnnHistory = () => {
+    document.getElementById("ann-history-modal")?.remove();
+    const ov = document.createElement("div");
+    ov.id = "ann-history-modal";
+    ov.style.cssText = "position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:6vh 16px";
+    ov.innerHTML = `
+      <div style="background:var(--panel); border:1px solid var(--hairline); border-radius:12px; width:640px; max-width:100%; max-height:82vh; display:flex; flex-direction:column; box-shadow:0 18px 50px rgba(0,0,0,.35)">
+        <div class="row" style="justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--hairline)">
+          <h3 style="margin:0">过往公告 <span class="muted" style="font-size:11px">共 ${anns.length+annArch.length} 条</span></h3>
+          <button class="ghost annhist-close" style="padding:2px 10px">关闭</button>
+        </div>
+        <div style="padding:12px 16px; overflow:auto">
+          ${anns.length? `<div class="muted" style="font-size:11px; margin:2px 0 6px">生效中</div>` + anns.map(a=>annItem(a,false)).join("") : `<div class="muted" style="font-size:12px">暂无生效中的公告。</div>`}
+          ${annArch.length? `<div class="muted" style="font-size:11px; margin:12px 0 6px">已结束</div>` + annArch.map(a=>annItem(a,true)).join("") : ""}
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener("click", e=>{ if(e.target===ov) ov.remove(); });
+    ov.querySelector(".annhist-close").onclick = ()=> ov.remove();
+    ov.querySelectorAll(".ann-read").forEach(b=>{
+      b.onclick = async ()=>{
+        const j = await api("/announcements/read", { id: b.dataset.id });
+        if(j) toast("已标记已读");
+        ov.remove();
+        refresh();
+      };
+    });
+  };
+  const annHistory = document.getElementById("ann-history");
+  if (annHistory) annHistory.onclick = openAnnHistory;
 }
 
 function renderDashExtras(s){
