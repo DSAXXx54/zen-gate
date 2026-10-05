@@ -69,6 +69,8 @@ type Server struct {
 	// announcementPull re-runs the feed fetch on demand (dashboard 刷新 button);
 	// wired from main alongside the periodic loop.
 	announcementPull func()
+	// updateCheck re-runs the release check on demand (设置页 检测更新 button).
+	updateCheck func() (bool, string)
 }
 
 // SetAgents wires the agent registry.
@@ -79,6 +81,9 @@ func (s *Server) SetAnnouncements(items []announce.Item) { s.announcements.Store
 
 // SetAnnouncementPull wires the on-demand feed refresh.
 func (s *Server) SetAnnouncementPull(fn func()) { s.announcementPull = fn }
+
+// SetUpdateCheck wires the on-demand release check.
+func (s *Server) SetUpdateCheck(fn func() (bool, string)) { s.updateCheck = fn }
 
 // SetLogger wires the logx logger (as a structural interface, no import cycle).
 func (s *Server) SetLogger(l interface {

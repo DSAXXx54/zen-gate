@@ -160,34 +160,36 @@ func main() {
 	}()
 
 	// update check loop (disabled until a feed URL is configured)
-	go func() {
-		check := func() {
-			cfg := st.Config()
-			feed := strings.TrimSpace(cfg.UpdateFeed)
-			if feed == "" {
-				feed = update.FeedURL // compiled-in default (release builds)
-			}
-			if feed == "" {
-				return
-			}
-			has, ver, url, _, err := update.Check(feed, update.HTTP{Timeout: 15 * time.Second, Client: lane.Client()})
-			if err != nil {
-				logger.Warnf("update check failed: %v", err)
-				return
-			}
-			gw.SetUpdateState(has, ver, url)
-			if has && cfg.LastVersion != ver {
-				logger.Infof("发现新版本 %s (当前 %s)", ver, gateway.Version)
-				if windowHidden {
-					notify.Toast("Zen Gate 有新版本 "+ver, "当前 "+gateway.Version+" · 打开管理页查看下载链接")
-				}
-				st.Config().LastVersion = ver
-				_ = st.Save()
-				syncEndpoints()
-			}
+	checkUpdates := func() (bool, string) {
+		cfg := st.Config()
+		feed := strings.TrimSpace(cfg.UpdateFeed)
+		if feed == "" {
+			feed = update.FeedURL // compiled-in default (release builds)
 		}
+		if feed == "" {
+			return false, ""
+		}
+		has, ver, url, _, err := update.Check(feed, update.HTTP{Timeout: 15 * time.Second, Client: lane.Client()})
+		if err != nil {
+			logger.Warnf("update check failed: %v", err)
+			return false, ""
+		}
+		gw.SetUpdateState(has, ver, url)
+		if has && cfg.LastVersion != ver {
+			logger.Infof("发现新版本 %s (当前 %s)", ver, gateway.Version)
+			if windowHidden {
+				notify.Toast("Zen Gate 有新版本 "+ver, "当前 "+gateway.Version+" · 打开管理页查看下载链接")
+			}
+			st.Config().LastVersion = ver
+			_ = st.Save()
+			syncEndpoints()
+		}
+		return has, ver
+	}
+	gw.SetUpdateCheck(checkUpdates)
+	go func() {
 		time.Sleep(45 * time.Second)
-		check()
+		checkUpdates()
 		t := time.NewTicker(6 * time.Hour)
 		defer t.Stop()
 		for {
@@ -195,7 +197,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				check()
+				checkUpdates()
 			}
 		}
 	}()

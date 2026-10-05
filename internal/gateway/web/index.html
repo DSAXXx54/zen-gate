@@ -1548,6 +1548,15 @@ function renderSettings(s){
           <button class="ghost" id="btn-csv">导出用量 (CSV)</button>
         </div>
       </div>
+
+      <div class="card">
+        <h3>更新</h3>
+        <div class="row">
+          <button class="ghost" id="btn-check-update">检测更新</button>
+          <span class="muted" style="font-size:12px" id="cur-ver"></span>
+        </div>
+        <div class="muted" style="font-size:11.5px;margin-top:6px">每次启动和每 6 小时自动检查（走更新源 URL）；检测到新版本时总览页出现「一键更新」。</div>
+      </div>
       `;
     el.querySelector("#save").onclick = async ()=>{
       const j = await api("/settings", { updateFeed: document.getElementById("set-feed").value.trim(),
@@ -1575,6 +1584,17 @@ function renderSettings(s){
       const j = await api("/autostart", {enabled: on});
       if(j) toast(on ? "已写入开机自启" : "已移除开机自启");
       refresh();
+    };
+    el.querySelector("#btn-check-update").onclick = async ()=>{
+      const b = el.querySelector("#btn-check-update");
+      b.disabled = true; b.textContent = "检测中…";
+      const j = await api("/update/check", {});
+      b.disabled = false; b.textContent = "检测更新";
+      if (j) {
+        if (j.has) toast("发现新版本 " + (j.version||"") + "！总览页可一键更新");
+        else toast("已是最新版本" + (j.version ? " v" + j.version : ""));
+        refresh();
+      }
     };
     el.querySelector("#btn-export").onclick = ()=>{ window.location.href = "/admin/api/export"; };
     el.querySelector("#btn-csv").onclick = ()=>{ window.location.href = "/admin/api/usage.csv"; };
@@ -1622,6 +1642,8 @@ function renderSettings(s){
   el.querySelector("#set-proxy-url").value = s.settings.proxyURL || "";
   el.querySelector("#set-feed").value = s.settings.updateFeed || "";
   el.querySelector("#set-ann").value = s.settings.announcementFeed || "";
+  const curVer = el.querySelector("#cur-ver");
+  if (curVer) curVer.textContent = "当前版本 v" + (s.version||"") + (s.settings.updateAvailable ? " · 有新版本 " + s.settings.updateVersion : "");
   el.querySelector("#set-stats-url").value = s.settings.statsServerUrl || "";
   setToggle("#tg-tray", s.settings.closeToTray);
   setToggle("#tg-notify", s.settings.notifications);

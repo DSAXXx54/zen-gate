@@ -61,6 +61,13 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, rest string
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case rest == "update/apply" && r.Method == http.MethodPost:
 		s.adminUpdateApply(w)
+	case rest == "update/check" && r.Method == http.MethodPost:
+		if s.updateCheck == nil {
+			writeJSON(w, 503, map[string]any{"ok": false, "error": "更新检查未就绪"})
+			return
+		}
+		has, ver := s.updateCheck()
+		writeJSON(w, 200, map[string]any{"ok": true, "has": has, "version": ver})
 	case rest == "key/rotate" && r.Method == http.MethodPost:
 		s.Store.Config().MainKey = store.GenerateKey("")
 		_ = s.Store.Save()
