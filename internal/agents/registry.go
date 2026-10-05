@@ -68,6 +68,7 @@ func NewRegistry(st *store.Store) *Registry {
 			newQwenCode(),
 			newContinueIDE(),
 			newWorkBuddy(),
+			newQoder(),
 		},
 	}
 }
@@ -107,6 +108,9 @@ func (r *Registry) Views() []View {
 		}
 		if installed && id == "workbuddy" && processRunning("WorkBuddy.exe") {
 			v.Warn = "WorkBuddy 正在运行，配置保存后约 1 秒自动热加载，无需重启"
+		}
+		if installed && id == "qoder" && processRunning("Qoder CN.exe", "Qoder.exe") {
+			v.Warn = "Qoder 正在运行，若模型列表未刷新请重启 Qoder 生效"
 		}
 		out = append(out, v)
 	}
