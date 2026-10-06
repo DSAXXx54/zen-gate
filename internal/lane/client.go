@@ -395,6 +395,12 @@ func (l *Lane) StartLoops(ctx context.Context, probeInterval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				if RotationActive() {
+					// With per-request egress rotation the exit IP is expected
+					// to change constantly — treating each change as a network
+					// event would fire a full probe round every two minutes.
+					continue
+				}
 				eg := DetectEgress(ctx)
 				l.mu.Lock()
 				changed := egressChanged(l.egress, eg)

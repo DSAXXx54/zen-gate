@@ -1576,6 +1576,32 @@ function renderSettings(s){
       </div>
 
       <div class="card">
+        <h3>订阅轮询 <span class="muted" style="font-size:11px">sing-box 侧车 · 每请求换出口 IP</span></h3>
+        <div class="row" style="align-items:center; gap:10px; flex-wrap:wrap">
+          <span id="subs-status"></span>
+          <label class="dim" style="display:inline-flex; align-items:center; gap:6px">sing-box.exe 路径
+            <input type="text" id="subs-path" placeholder="留空用自动下载的官方版" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;width:250px;font-family:var(--mono)">
+          </label>
+          <button class="ghost" id="btn-subs-path">保存路径</button>
+          <button class="ghost" id="btn-subs-download">下载 sing-box</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:1">
+            <div class="dim" style="font-size:12px;margin-bottom:4px">订阅 URL（一行一个，支持 vless / vmess / ss / trojan / hy2 / tuic 节点）</div>
+            <textarea id="subs-urls" rows="3" style="width:100%;background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;font-family:var(--mono);font-size:12px" placeholder="https://example.com/api/v1/client/subscribe?token=..."></textarea>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px; gap:10px; flex-wrap:wrap">
+          <button class="act" id="btn-subs-apply">保存并启用轮询</button>
+          <button class="ghost" id="btn-subs-refresh">刷新订阅</button>
+          <button class="ghost" id="btn-subs-probe">重新探测节点</button>
+          <button class="ghost" id="btn-subs-disable">停用</button>
+        </div>
+        <div id="subs-nodes" style="margin-top:10px"></div>
+        <div class="muted" style="font-size:11.5px;margin-top:6px">轮询=每个请求从健康节点中换一个出口（额度按出口 IP 计，每个节点都是独立额度）；单节点拨号失败自动换下一个重试。启用后上游代理模式切到「订阅轮询」，停用恢复「跟随环境变量」。</div>
+      </div>
+
+      <div class="card">
         <h3>数据</h3>
         <div class="row">
           <button class="ghost" id="btn-export">导出配置 (JSON)</button>
@@ -1598,10 +1624,12 @@ function renderSettings(s){
       const j = await api("/settings", { updateFeed: document.getElementById("set-feed").value.trim(),
       announcementFeed: document.getElementById("set-ann").value.trim(),
       statsServerUrl: document.getElementById("set-stats-url").value.trim(),
+      proxyMode: el.querySelector("#set-proxy").dataset.value,
+      proxyURL: el.querySelector("#set-proxy-url").value.trim(),
       defaultEffort: document.getElementById("set-effort").dataset.value,
                                          defaultMaxTokens: parseInt($("#set-max").value)||undefined,
                                          probeIntervalMinutes: parseInt($("#set-probe").value)||undefined });
-      if(j) toast("已保存，公告源每 6 小时同步一次");
+      if(j) toast("已保存（代理设置热生效）");
     };
     el.querySelector("#tg-tray").onclick = async e => {
       const on = !e.target.dataset.on;
@@ -1665,6 +1693,41 @@ function renderSettings(s){
       if(j) toast("已轮换");
       refresh();
     };
+    // --- 订阅轮询 ---
+    const subUrls = ()=> el.querySelector("#subs-urls").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    const subItems = urls => urls.map(u=>({ id:"sub-"+(u.length+"|"+u).split("").reduce((a,c)=>((a<<5)-a+c.charCodeAt(0))|0,0).toString(16), url:u, name:"", enabled:true }));
+    el.querySelector("#btn-subs-apply").onclick = async ()=>{
+      const urls = subUrls();
+      if(!urls.length){ toast("先填至少一个订阅 URL"); return; }
+      const j = await api("/subs/save", { enabled:true, items: subItems(urls) });
+      if(j){ toast("订阅已保存，拉取节点中…"); refresh(); setTimeout(refresh, 6000); }
+    };
+    el.querySelector("#btn-subs-disable").onclick = async ()=>{
+      const j = await api("/subs/save", { enabled:false, items: (STATE.subscriptions?.items||[]) });
+      if(j){ toast("订阅轮询已停用，代理恢复跟随环境变量"); refresh(); }
+    };
+    el.querySelector("#btn-subs-refresh").onclick = async ()=>{
+      toast("拉取订阅中…");
+      await api("/subs/refresh", {});
+      refresh(); setTimeout(refresh, 6000);
+    };
+    el.querySelector("#btn-subs-probe").onclick = async ()=>{
+      toast("探测各节点出口中…");
+      await api("/subs/probe", {});
+      refresh(); setTimeout(refresh, 8000);
+    };
+    el.querySelector("#btn-subs-path").onclick = async ()=>{
+      const p = el.querySelector("#subs-path").value.trim();
+      const j = await api("/subs/singbox", { path: p });
+      if(j){ toast(p ? "sing-box 路径已保存" : "已清空路径，改用自动下载的版本"); refresh(); }
+    };
+    el.querySelector("#btn-subs-download").onclick = async ()=>{
+      const b = el.querySelector("#btn-subs-download");
+      b.disabled = true; b.textContent = "下载中…";
+      const j = await api("/subs/singbox", { download: true });
+      if(j){ toast("开始下载 sing-box（走当前代理），几分钟后刷新查看"); setTimeout(refresh, 8000); }
+      b.disabled = false; b.textContent = "下载 sing-box";
+    };
     el.dataset.rendered = "1";
   }
   el.querySelector("#set-max").value = s.settings.defaultMaxTokens;
@@ -1673,11 +1736,37 @@ function renderSettings(s){
     [["light","Light · 精简 (2K)"],["balanced","Balanced · 均衡 (8K)"],["deep","Deep · 深思 (模型上限)"]],
     s.settings.defaultEffort || "balanced", null);
   makeDropdown(el.querySelector("#set-proxy"),
-    [["system","跟随系统代理"],["env","跟随环境变量"],["direct","直连"],["custom","自定义 URL"]],
+    [["system","跟随系统代理"],["env","跟随环境变量"],["direct","直连"],["custom","自定义 URL"],["rotate","订阅轮询 (sing-box)"]],
     s.settings.proxyMode || "env", null);
   el.querySelector("#set-proxy-url").value = s.settings.proxyURL || "";
   el.querySelector("#set-feed").value = s.settings.updateFeed || "";
   el.querySelector("#set-ann").value = s.settings.announcementFeed || "";
+  // --- 订阅轮询状态同步（每次刷新重绘节点表） ---
+  const sub = s.subscriptions || {items:[], singbox:{}};
+  const ta = el.querySelector("#subs-urls");
+  if (ta && document.activeElement !== ta) {
+    ta.value = (sub.items||[]).map(i=>i.url).join("\n");
+  }
+  const sp = el.querySelector("#subs-path");
+  if (sp && document.activeElement !== sp) sp.value = sub.singbox?.path || "";
+  const sb = sub.singbox || {};
+  const stEl = el.querySelector("#subs-status");
+  if (stEl) {
+    if (!sub.enabled) {
+      stEl.innerHTML = `<span class="pill hidsync">未启用</span>`;
+    } else if (sb.running) {
+      stEl.innerHTML = `<span class="pill ok">侧车运行中${sb.version ? " · sing-box "+esc(sb.version) : ""}</span> <span class="muted" style="font-size:11px">${sb.alive||0}/${(sb.nodes||[]).length} 节点健康</span>${sb.lastErr?` <span class="muted" style="font-size:11px">部分订阅失败: ${esc(sb.lastErr)}</span>`:""}`;
+    } else {
+      stEl.innerHTML = `<span class="pill warn">侧车未运行</span>${sb.lastErr?` <span class="muted" style="font-size:11px">${esc(sb.lastErr)}</span>`:""}`;
+    }
+  }
+  const ndEl = el.querySelector("#subs-nodes");
+  if (ndEl) {
+    const nodes = sb.nodes || [];
+    ndEl.innerHTML = nodes.length ? `<div style="display:grid; grid-template-columns:1fr 60px 1fr 90px 70px; gap:4px 10px; font-size:12px">
+      ${nodes.map(n=>`<span>${esc(n.name||n.id)}</span><span class="muted">${esc(n.proto)}</span><span class="mono" style="font-size:11px">${esc(n.ip||"—")} ${esc(n.country||"")}</span><span class="muted">${n.latencyMs?n.latencyMs+"ms":"—"}</span><span>${n.alive?'<span class="pill ok">可用</span>':'<span class="pill bad">失败</span>'}</span>`).join("")}
+    </div>` : `<div class="muted" style="font-size:12px">${sub.enabled?"尚未拉取到节点——点「刷新订阅」试试。":"停用中。"}</div>`;
+  }
   const curVer = el.querySelector("#cur-ver");
   if (curVer) curVer.textContent = "当前版本 v" + (s.version||"") + (s.settings.updateAvailable ? " · 有新版本 " + s.settings.updateVersion : "");
   el.querySelector("#set-stats-url").value = s.settings.statsServerUrl || "";
@@ -1742,7 +1831,7 @@ let lastSig = "";
 async function refresh(){
   const j = await api("/state"); if(!j) return;
   if(typeof j.uptimeSec === "number") bootAt = Date.now() - j.uptimeSec*1000;
-  const sig = JSON.stringify([j.models,j.agents,j.stats,j.settings,j.egress,j.mainKey,j.baseURL,j.port,j.providers,j.announcements,j.announcementArchive]);
+  const sig = JSON.stringify([j.models,j.agents,j.stats,j.settings,j.egress,j.mainKey,j.baseURL,j.port,j.providers,j.subscriptions,j.announcements,j.announcementArchive]);
   if (sig === lastSig){ tickUptime(); return; }
   lastSig = sig; STATE = j; render();
 }

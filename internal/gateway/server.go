@@ -4,6 +4,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -71,7 +72,27 @@ type Server struct {
 	announcementPull func()
 	// updateCheck re-runs the release check on demand (设置页 检测更新 button).
 	updateCheck func() (bool, string)
+	// subs is the sing-box sidecar manager, injected by main when the
+	// subscription feature is wired; nil-safe handlers fall back to errors.
+	subs SubsController
 }
+
+// SubsController is the dashboard-facing surface of the sing-box sidecar
+// manager (internal/subs.Manager): refresh subscriptions, probe nodes,
+// download the binary, and report live node health.
+type SubsController interface {
+	Apply(ctx context.Context) error
+	Refresh(ctx context.Context) error
+	ProbeAll(ctx context.Context)
+	Stop()
+	Download(ctx context.Context) (string, error)
+	SetPath(path string) error
+	Healthy() int
+	Status() map[string]any
+}
+
+// SetSubs wires the sidecar manager.
+func (s *Server) SetSubs(m SubsController) { s.subs = m }
 
 // SetAgents wires the agent registry.
 func (s *Server) SetAgents(reg AgentRegistry) { s.registry = reg }

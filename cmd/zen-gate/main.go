@@ -25,6 +25,7 @@ import (
 	"zen-gate/internal/logx"
 	"zen-gate/internal/notify"
 	"zen-gate/internal/store"
+	"zen-gate/internal/subs"
 	"zen-gate/internal/tray"
 	"zen-gate/internal/update"
 	"zen-gate/internal/window"
@@ -90,6 +91,23 @@ func main() {
 		st.SetQuotaNote(model, qn)
 	})
 	lane.SetProxy(cfg.ProxyMode, cfg.ProxyURL)
+	// 订阅轮询:sidecar manager wires into the gateway, the lane rotator and
+	// every shutdown path below.
+	mgr := subs.NewManager(st, logger.Infof)
+	if cfg.SubsEnabled && len(cfg.Subscriptions) > 0 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			if err := mgr.Apply(ctx); err != nil {
+				logger.Errorf("订阅轮询启动失败: %v", err)
+				return
+			}
+			if cfg.ProxyMode == "rotate" {
+				lane.SetRotator(mgr)
+				logger.Infof("订阅轮询已启动(%d 个健康节点)", mgr.Healthy())
+			}
+		}()
+	}
 	notify.SetEnabled(cfg.Notifications)
 	ln.OnCall = func(rec lane.CallRecord) {
 		st.Record(rec)
@@ -102,6 +120,7 @@ func main() {
 	reg := agents.NewRegistry(st)
 	gw := gateway.New(ln, st)
 	gw.SetAgents(reg)
+	gw.SetSubs(mgr)
 	gw.SetLogger(logger)
 	window.SetDiag(func(msg string) { logger.Infof("%s", msg) })
 	gw.SetAutostartState(agents.AutostartEnabled)
@@ -283,6 +302,7 @@ func main() {
 		<-c
 		cancel()
 		gw.Stop()
+		mgr.Stop()
 		_ = st.FlushStats()
 		return
 	}
@@ -294,6 +314,7 @@ func main() {
 			saveWindowState(st)
 			cancel()
 			gw.Stop()
+			mgr.Stop() // before os.Exit — the deferred path never runs here
 			_ = st.FlushStats()
 			os.Exit(0)
 		},
@@ -340,6 +361,7 @@ func main() {
 	// window closed → quit
 	cancel()
 	gw.Stop()
+	mgr.Stop()
 	_ = st.FlushStats()
 	logger.Infof("zen-gate 已退出")
 }
