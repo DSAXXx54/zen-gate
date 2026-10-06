@@ -1563,16 +1563,7 @@ function renderSettings(s){
           <button class="ghost" id="btn-proxy-test">测试上游连通</button>
           <span class="muted" style="font-size:12px" id="proxy-test-result"></span>
         </div>
-        <div class="row" style="margin-top:10px">
-          <label class="dim">统计服务器 URL <input type="text" id="set-stats-url" placeholder="https://your-server（留空关闭心跳上报）" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;width:340px;font-family:var(--mono)"></label>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <label class="dim">更新源 URL <input type="text" id="set-feed" placeholder="https://api.github.com/repos/you/zen-gate/releases/latest（留空关闭）" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;width:340px;font-family:var(--mono)"></label>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <label class="dim">公告源 URL <input type="text" id="set-ann" placeholder="https://raw.githubusercontent.com/you/zen-gate/main/announcements.json（留空关闭）" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);border-radius:6px;padding:6px 9px;width:340px;font-family:var(--mono)"></label>
-        </div>
-        <div class="muted" style="font-size:12px;margin-top:8px">代理保存即热生效（影响上游推理/清单/探测请求）。更新源返回 {"version":"x.y.z","url":"下载页"}，检测到新版本会横幅提示 + 系统通知（窗口隐藏时）。</div>
+        <div class="muted" style="font-size:12px;margin-top:8px">代理保存即热生效（影响上游推理/清单/探测请求）。</div>
       </div>
 
       <div class="card">
@@ -1621,14 +1612,11 @@ function renderSettings(s){
       </div>
       `;
     el.querySelector("#save").onclick = async ()=>{
-      const j = await api("/settings", { updateFeed: document.getElementById("set-feed").value.trim(),
-      announcementFeed: document.getElementById("set-ann").value.trim(),
-      statsServerUrl: document.getElementById("set-stats-url").value.trim(),
-      proxyMode: el.querySelector("#set-proxy").dataset.value,
+      const j = await api("/settings", { proxyMode: el.querySelector("#set-proxy").dataset.value,
       proxyURL: el.querySelector("#set-proxy-url").value.trim(),
       defaultEffort: document.getElementById("set-effort").dataset.value,
-                                         defaultMaxTokens: parseInt($("#set-max").value)||undefined,
-                                         probeIntervalMinutes: parseInt($("#set-probe").value)||undefined });
+      defaultMaxTokens: parseInt($("#set-max").value)||undefined,
+      probeIntervalMinutes: parseInt($("#set-probe").value)||undefined });
       if(j) toast("已保存（代理设置热生效）");
     };
     el.querySelector("#tg-tray").onclick = async e => {
@@ -1739,8 +1727,6 @@ function renderSettings(s){
     [["system","跟随系统代理"],["env","跟随环境变量"],["direct","直连"],["custom","自定义 URL"],["rotate","订阅轮询 (sing-box)"]],
     s.settings.proxyMode || "env", null);
   el.querySelector("#set-proxy-url").value = s.settings.proxyURL || "";
-  el.querySelector("#set-feed").value = s.settings.updateFeed || "";
-  el.querySelector("#set-ann").value = s.settings.announcementFeed || "";
   // --- 订阅轮询状态同步（每次刷新重绘节点表） ---
   const sub = s.subscriptions || {items:[], singbox:{}};
   const ta = el.querySelector("#subs-urls");
@@ -1769,7 +1755,6 @@ function renderSettings(s){
   }
   const curVer = el.querySelector("#cur-ver");
   if (curVer) curVer.textContent = "当前版本 v" + (s.version||"") + (s.settings.updateAvailable ? " · 有新版本 " + s.settings.updateVersion : "");
-  el.querySelector("#set-stats-url").value = s.settings.statsServerUrl || "";
   setToggle("#tg-tray", s.settings.closeToTray);
   setToggle("#tg-notify", s.settings.notifications);
   setToggle("#tg-autostart", s.settings.autostart);
