@@ -287,31 +287,32 @@ func main() {
 		return
 	}
 
-	// tray lives on its own locked thread; main thread owns the window
-	go tray.Run(tray.Options{
-		DashboardURL: dashURL,
-		OnQuit: func() {
-			saveWindowState(st)
-			cancel()
-			gw.Stop()
-			_ = st.FlushStats()
-			os.Exit(0)
-		},
-		OnReprobe: func() { go ln.ProbeRound(context.Background(), true) },
-		OnShow: func() {
-			windowHidden = false
-			if mainHwnd != 0 {
-				window.ShowWindowWin(mainHwnd)
-			}
-		},
-	})
-
+	// tray lives on its own locked thread on Windows; window.Run owns the
+	// platform's UI thread (main) and hosts the tray there — on macOS AppKit
+	// requires both objects on that one thread.
 	window.Run(window.Options{
 		Title:    "Zen Gate · 本地免费模型网关",
 		URL:      dashURL,
 		DataPath: st.Home + string(os.PathSeparator) + "webview",
 		Width:    1160,
 		Height:   820,
+		Tray: &window.TrayOptions{
+			DashboardURL: dashURL,
+			OnQuit: func() {
+				saveWindowState(st)
+				cancel()
+				gw.Stop()
+				_ = st.FlushStats()
+				os.Exit(0)
+			},
+			OnReprobe: func() { go ln.ProbeRound(context.Background(), true) },
+			OnShow: func() {
+				windowHidden = false
+				if mainHwnd != 0 {
+					window.ShowWindowWin(mainHwnd)
+				}
+			},
+		},
 		Bounds: func() *window.Bounds {
 			w := cfg.Window
 			if w.W > 0 {

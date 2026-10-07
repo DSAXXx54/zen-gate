@@ -10,11 +10,15 @@ import (
 	"time"
 )
 
-// Apply downloads the new zen-gate.exe from a release asset and swaps it with
-// the running binary. Windows refuses to overwrite a running exe but allows
-// renaming it, so the swap is: current → .bak, .new → current, spawn the new
-// exe, exit. The caller exits right after Apply returns success; the .bak is
+// Apply downloads the new binary from a release asset and swaps it with the
+// running one. Windows refuses to overwrite a running exe but allows renaming
+// it, so the swap is: current → .bak, .new → current, spawn the new exe,
+// exit. The caller exits right after Apply returns success; the .bak is
 // cleaned up on the next boot (CleanupBackup).
+//
+// Only Windows reaches this path — see SelfUpdateSupported. Everywhere else
+// the release is a bundle the user installs by hand, because replacing a
+// signed .app's inner binary in place would break the signature.
 //
 // download is the release asset URL (https only — the whole point is that the
 // payload comes from the GitHub release this update check just authenticated

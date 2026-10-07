@@ -3,6 +3,8 @@ dist/
 *.exe
 *.exe.new
 *.exe.bak
+*.app
+*.icns
 
 # local runtime data (never publish user data)
 backups/
@@ -23,9 +25,10 @@ stats-server.json
 tools/_check.js
 tools/patch_theme_anim.py
 
-# editor
+# editor / OS
 .vscode/
 .idea/
 *.swp
 shot-*.png
 tools/deploy_zenstats.py
+.DS_Store

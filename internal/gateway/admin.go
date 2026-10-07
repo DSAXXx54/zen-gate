@@ -278,6 +278,9 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			"updateAvailable":      s.updateAvailable,
 			"updateVersion":        s.updateVersion,
 			"updateURL":            s.updateURL,
+			// Bundled builds cannot swap their own binary; the dashboard hides
+			// 一键更新 and just links to the release page.
+			"updateSelfUpdate": update.SelfUpdateSupported,
 			"proxyMode":            cfg.ProxyMode,
 			"proxyURL":             cfg.ProxyURL,
 			"autostart":            s.autostartState(),
@@ -827,11 +830,16 @@ func (s *Server) customProbeOf(id string) (lane.ProbeResult, bool) {
 }
 
 // adminUpdateApply downloads the pending release asset and swaps the running
-// exe; the process relaunches itself and the dashboard reconnects to the new
-// instance. Gate: an update must have been detected first.
+// binary; the process relaunches itself and the dashboard reconnects to the new
+// instance. Gate: an update must have been detected first, and this platform
+// must support an in-place swap.
 func (s *Server) adminUpdateApply(w http.ResponseWriter) {
 	if !s.updateAvailable || s.updateURL == "" {
 		writeJSON(w, 400, map[string]any{"ok": false, "error": "没有检测到可用更新"})
+		return
+	}
+	if !update.SelfUpdateSupported {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "此平台不支持一键更新，请从发布页下载新版本"})
 		return
 	}
 	if _, err := update.Apply(s.updateURL, lane.Client()); err != nil {

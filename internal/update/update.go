@@ -10,10 +10,31 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// SelfUpdateSupported reports whether 一键更新 can replace the running binary
+// in place. Only Windows ships that flow: the app is a single .exe that can
+// be renamed while running. Everywhere else the build is a bundle/zip, so the
+// dashboard links to the release page and the user installs by hand.
+var SelfUpdateSupported = runtime.GOOS == "windows"
+
+// assetName is the release asset 一键更新 expects for this platform. An empty
+// name means the platform has no in-place update, which keeps the updater from
+// ever handing a foreign binary to the swap logic.
+func assetName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "zen-gate.exe"
+	case "darwin":
+		return "zen-gate-darwin"
+	default:
+		return ""
+	}
+}
 
 // FeedURL is the default update feed, overridable via -ldflags at release
 // build time and per-install through settings.
@@ -68,38 +89,45 @@ type githubRelease struct {
 }
 
 // parseGitHubRelease maps a Releases/latest payload onto the feed shape,
-// preferring the windows exe asset as the download URL.
+// preferring this platform's binary asset. Without a matching asset the URL
+// stays on the release page: the dashboard then shows the version and sends
+// the user to the download, which is what a bundled build needs.
 func parseGitHubRelease(data []byte) (bool, string, string, string, error) {
 	var rel githubRelease
 	if err := json.Unmarshal(data, &rel); err != nil {
 		return false, "", "", "", err
 	}
 	url := rel.HTMLURL
-	for _, a := range rel.Assets {
-		if strings.EqualFold(a.Name, "zen-gate.exe") {
-			url = a.BrowserDownloadURL
-			break
+	if want := assetName(); want != "" {
+		for _, a := range rel.Assets {
+			if strings.EqualFold(a.Name, want) {
+				url = a.BrowserDownloadURL
+				break
+			}
 		}
 	}
 	return Newer(rel.TagName, Current), strings.TrimSpace(rel.TagName), url, rel.Body, nil
 }
 
-// LatestAssetURL returns the windows exe download URL from a Releases/latest
-// payload (used by the one-click updater).
+// LatestAssetURL returns this platform's binary download URL from a
+// Releases/latest payload. It deliberately does *not* fall back to an arbitrary
+// asset: handing a Windows exe to a macOS build would replace the app with
+// something it cannot run.
 func LatestAssetURL(data []byte) (string, int64, error) {
 	var rel githubRelease
 	if err := json.Unmarshal(data, &rel); err != nil {
 		return "", 0, err
 	}
+	want := assetName()
+	if want == "" {
+		return "", 0, fmt.Errorf("no in-place update is supported on %s", runtime.GOOS)
+	}
 	for _, a := range rel.Assets {
-		if strings.EqualFold(a.Name, "zen-gate.exe") {
+		if strings.EqualFold(a.Name, want) {
 			return a.BrowserDownloadURL, a.Size, nil
 		}
 	}
-	if len(rel.Assets) > 0 {
-		return rel.Assets[0].BrowserDownloadURL, rel.Assets[0].Size, nil
-	}
-	return "", 0, fmt.Errorf("release has no downloadable assets")
+	return "", 0, fmt.Errorf("release %s has no %s asset", rel.TagName, want)
 }
 
 type getJSONer interface{ Get(url string) ([]byte, error) }

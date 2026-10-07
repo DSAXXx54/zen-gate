@@ -6,13 +6,13 @@
 
 **把 OpenCode Zen 免费模型，装进你所有的 AI Agent。**
 
-一个 Windows 桌面托盘程序：本地起一个 OpenAI / Anthropic 兼容网关，
-自动探测并接入你机器上已安装的 AI Agent——模型选择器里直接出现免费模型。
+一个桌面托盘程序（Windows 10/11 与 macOS 13+）：本地起一个 OpenAI / Anthropic
+兼容网关，自动探测并接入你机器上已安装的 AI Agent——模型选择器里直接出现免费模型。
 
 [![release](https://img.shields.io/github/v/release/LAGcomcom/zen-gate?style=flat-square&label=%E7%89%88%E6%9C%AC)](https://github.com/LAGcomcom/zen-gate/releases/latest)
 [![downloads](https://img.shields.io/github/downloads/LAGcomcom/zen-gate/total?style=flat-square&label=%E4%B8%8B%E8%BD%BD)](https://github.com/LAGcomcom/zen-gate/releases)
 [![go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
-[![platform](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows11&logoColor=white)](https://github.com/LAGcomcom/zen-gate/releases)
+[![platform](https://img.shields.io/badge/Windows-10%2F11%20%7C%20macOS%2013%2B-0078D6?style=flat-square&logo=windows11&logoColor=white)](https://github.com/LAGcomcom/zen-gate/releases)
 [![license](https://img.shields.io/github/license/LAGcomcom/zen-gate?style=flat-square)](LICENSE)
 
 [下载最新版](https://github.com/LAGcomcom/zen-gate/releases/latest) · [问题反馈](https://github.com/LAGcomcom/zen-gate/issues)
@@ -51,29 +51,71 @@ OpenCode Zen 提供了一批**免登录、免计费**的模型车道，但它们
 | 📊 **额度测算** | 无官方余额 API 也能估：限额时段追踪 + 恢复时间预估 + 日额度进度条 |
 | ⏱ **首字历史** | 每次探测的首字延迟入样本环，重启不丢，模型页直接看平均首字 |
 | 🌡 **GitHub 式热力图** | 365 天用量热力图 + 多模型趋势折线 + 每 / 周 / 累计三种视图 |
-| 🖥 **托盘常驻** | 关窗即进托盘、开机自启、系统通知、跟随系统代理 |
+| 🖥 **托盘常驻** | 关窗即进托盘/菜单栏、开机自启（注册表 / launchd）、系统通知、跟随系统代理（WinINET / `scutil --proxy`） |
 | 🛡 **只听本机** | 网关仅绑定 127.0.0.1，管理端有同源护栏，配置先备份再改 |
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/LAGcomcom/zen-gate/releases/latest) 下载 `zen-gate.exe`，双击运行（托盘出现图标）；
-2. 到「Agent 适配」页打开你装的 Agent 开关 → 重启该 Agent；
-3. 模型选择器里出现免费模型，直接用。
+**Windows** — 从 [Releases](https://github.com/LAGcomcom/zen-gate/releases/latest) 下载
+`zen-gate.exe`，双击运行（托盘出现图标）。
+
+**macOS** — `tools/build-macos.sh` 产出 `dist/Zen Gate.app`，安装并启动：
+
+```bash
+tools/build-macos.sh
+cp -R "dist/Zen Gate.app" /Applications/
+open "/Applications/Zen Gate.app"
+```
+
+两边都是：到「Agent 适配」页打开你装的 Agent 开关 → 重启该 Agent →
+模型选择器里出现免费模型。
 
 > 想接 ChatBox / Cherry Studio / 任意 SDK？「接入」页有每个客户端的填法和 curl 示例。
 
 
 ## 从源码构建
 
+Windows：
+
 ```bash
-go build -trimpath -ldflags "-s -w -H=windowsgui   -X zen-gate/internal/gateway.Version=1.2.1   -X zen-gate/internal/update.Current=1.2.1" -o dist/zen-gate.exe ./cmd/zen-gate
+go build -trimpath -ldflags "-s -w -H=windowsgui -X zen-gate/internal/gateway.Version=1.2.1 -X zen-gate/internal/update.Current=1.2.1" -o dist/zen-gate.exe ./cmd/zen-gate
+```
+
+macOS（需要 cgo 与 Xcode 命令行工具；脚本负责编出 arm64 + x86_64 双架构、
+打 .app 包、生成 .icns、做 ad-hoc 签名并压 zip）：
+
+```bash
+tools/build-macos.sh 1.2.1
 ```
 
 发版：推一个 `v*` 标签（GitHub Actions 自动构建发布），或本地
-`powershell -File tools
-elease.ps1 -Version 1.2.2`。
+`powershell -File tools\release.ps1 -Version 1.2.2`。macOS 包目前**不**随标签
+发布——只有 ad-hoc 签名，缺少 Developer ID 与公证，发出去只会被 Gatekeeper 拦。
+Actions 里的 `build-macos` job 负责每次构建验证，产物作为 workflow artifact 留存。
 
 ## 一键更新
 
 应用每 6 小时检查本仓库的 Releases（走系统代理）。发现新版本时总览页出现「一键更新」
 按钮——自动下载、替换、重启，全程约 10 秒。
+
+一键更新只在 Windows 开启：那里发行物就是一个可以在运行时改名的 `.exe`。
+macOS 的发行物是整个 `.app`，覆盖包内二进制会破坏签名，所以总览页只给「发布页 →
+」链接，由用户自行下载替换。
+
+## 平台差异
+
+两个平台的实现按文件后缀拆分（`*_windows.go` / `*_darwin.go`），共用代码不带后缀：
+
+| | Windows | macOS |
+|---|---|---|
+| 窗口 | WebView2 + Win32 无边框窗口 | WKWebView + NSWindow（全尺寸内容视图，隐藏系统红绿灯） |
+| 托盘 | `getlantern/systray`，独占一个锁定的 goroutine | 同上，但与窗口共用主线程——AppKit 只允许主线程建窗口 |
+| 开机自启 | `HKCU\...\Run` | `~/Library/LaunchAgents/com.lagcomcom.zen-gate.plist` + `launchctl bootstrap` |
+| 系统代理 | `HKCU\...\Internet Settings`（WinINET） | `scutil --proxy` |
+| 通知 | PowerShell + WinRT toast | `osascript -e 'display notification'` |
+| 数据目录 | `%APPDATA%\zen-gate` | `~/Library/Application Support/zen-gate`（`ZEN_GATE_HOME` 可覆盖） |
+| 单实例 | 命名互斥体 | `zen-gate.lock` 上的 `flock`（进程退出即释放，不会留死锁） |
+| 一键更新 | 支持 | 不支持，只跳发布页 |
+
+窗口按钮（最小化 / 最大化 / 关闭 / 拖拽）在两边都通过页面注入的
+`window.zengate*` 绑定实现，所以 dashboard 一份代码两处跑。

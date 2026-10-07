@@ -7,10 +7,7 @@ package agents
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 
 	"zen-gate/internal/lane"
 	"zen-gate/internal/store"
@@ -100,16 +97,16 @@ func (r *Registry) Views() []View {
 		if enDetail != "" {
 			v.Detail = enDetail
 		}
-		if installed && id == "dsh" && processRunning("DeepSeek Harness.exe") {
+		if installed && id == "dsh" && processRunning("DeepSeek Harness") {
 			v.Warn = "DeepSeek Harness 正在运行，启用/停用后需重启应用生效"
 		}
-		if installed && id == "zcode" && processRunning("ZCode.exe", "zcode.exe") {
+		if installed && id == "zcode" && processRunning("ZCode") {
 			v.Warn = "ZCode 正在运行，启用后需重启 ZCode 生效"
 		}
-		if installed && id == "workbuddy" && processRunning("WorkBuddy.exe") {
+		if installed && id == "workbuddy" && processRunning("WorkBuddy") {
 			v.Warn = "WorkBuddy 正在运行，配置保存后约 1 秒自动热加载，无需重启"
 		}
-		if installed && id == "qoder" && processRunning("Qoder CN.exe", "Qoder.exe") {
+		if installed && id == "qoder" && processRunning("Qoder CN", "Qoder") {
 			v.Warn = "Qoder 正在运行，若模型列表未刷新请重启 Qoder 生效"
 		}
 		out = append(out, v)
@@ -206,17 +203,5 @@ func atomicWrite(path string, data []byte) error {
 // is hidden — a GUI process spawning tasklist would otherwise flash a black
 // console window on every poll.
 func processRunning(imageNames ...string) bool {
-	cmd := exec.Command("tasklist", "/FO", "CSV", "/NH")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	lower := strings.ToLower(string(out))
-	for _, n := range imageNames {
-		if strings.Contains(lower, strings.ToLower(n)) {
-			return true
-		}
-	}
-	return false
+	return processRunningAny(imageNames)
 }
