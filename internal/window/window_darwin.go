@@ -5,13 +5,14 @@ package window
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
 #cgo LDFLAGS: -framework Cocoa -framework WebKit
-#include "zgwindow.h"
+#include "cocoa/zgwindow.h"
 */
 import "C"
 
 import (
 	"unsafe"
 
+	_ "zen-gate/internal/window/cocoa"
 	"zen-gate/internal/tray"
 )
 
