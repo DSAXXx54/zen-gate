@@ -1,8 +1,9 @@
+//go:build windows
+
 package window
 
 import (
 	_ "embed"
-	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -13,37 +14,26 @@ var windowIconICO []byte
 
 var (
 	procLoadImageW       = user32.NewProc("LoadImageW")
-	procSendMessageW2   = user32.NewProc("SendMessageW")
+	procSendMessageW2    = user32.NewProc("SendMessageW")
 	procSetClassLongPtrW = user32.NewProc("SetClassLongPtrW")
 	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
 	shell32              = syscall.NewLazyDLL("shell32.dll")
 	procSetExplicitAUMID = shell32.NewProc("SetCurrentProcessExplicitAppUserModelID")
-
-	diag func(string)
 )
 
 const (
-	gclpHIcon   = 0xFFFFFFF2
-	gclpHIconSm = 0xFFFFFFDE
-	wmSetIcon   = 0x0080
-	iconBigW    = 1
-	iconSmallW  = 0
-	smCXIcon    = 11
-	smCYIcon    = 12
-	smCXSmIcon  = 49
-	smCYSmIcon  = 50
+	gclpHIcon      = 0xFFFFFFF2
+	gclpHIconSm    = 0xFFFFFFDE
+	wmSetIcon      = 0x0080
+	iconBigW       = 1
+	iconSmallW     = 0
+	smCXIcon       = 11
+	smCYIcon       = 12
+	smCXSmIcon     = 49
+	smCYSmIcon     = 50
 	lrLoadFromFile = 0x0010
 	imageIconW     = 1
 )
-
-// SetDiag wires a log sink for window/icon diagnostics.
-func SetDiag(f func(string)) { diag = f }
-
-func dlogf(format string, args ...any) {
-	if diag != nil {
-		diag(fmt.Sprintf(format, args...))
-	}
-}
 
 // SetAppUserModelID gives the process an explicit taskbar identity so Windows
 // doesn't reuse cached icon groups from older builds.

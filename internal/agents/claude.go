@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -82,6 +83,11 @@ func (c *claude) Enable(o Options) error {
 	doc["env"] = env
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
+		return err
+	}
+	// A fresh install has no ~/.claude yet; Detect only reports "detected"
+	// from the directory, so Enable is routinely the first writer.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	return atomicWrite(path, data)

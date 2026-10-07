@@ -575,10 +575,13 @@ function renderDash(s){
   const on = s.agents.filter(a=>a.enabled).length;
   const todayKey = Object.keys(s.stats.days||{}).sort().pop();
   const day = todayKey ? s.stats.days[todayKey] : null;
+  // 一键更新 only exists where the binary can replace itself in place; other
+  // builds (the macOS .app) just link to the release page.
+  const updAct = s.settings.updateSelfUpdate ? `<button class="act" id="upd-apply">一键更新</button>` : "";
   const banner = s.settings.updateAvailable ? `
     <div class="card" style="border-color:var(--accent); display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 16px; margin-bottom:12px">
       <span>发现新版本 <b>${esc(s.settings.updateVersion)}</b>（当前 ${esc(s.version)}）</span>
-      <span style="display:flex; gap:8px; align-items:center"><button class="act" id="upd-apply">一键更新</button><a href="${esc(s.settings.updateURL||"#")}" target="_blank" style="font-size:13px">发布页 →</a></span>
+      <span style="display:flex; gap:8px; align-items:center">${updAct}<a href="${esc(s.settings.updateURL||"#")}" target="_blank" style="font-size:13px">发布页 →</a></span>
     </div>` : "";
   // 公告卡常驻总览：critical/warn/info 分级着色，未读高亮 + 可标记已读；
   // 卡片只显示最新 2 条，「过往公告」弹窗里看全部（含已结束归档）。

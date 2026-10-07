@@ -11,12 +11,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 // --- shared helpers ---------------------------------------------------------
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// appDataDir joins parts onto the host OS's per-user application data
+// directory: %APPDATA% on Windows, ~/Library/Application Support on macOS.
+func appDataDir(parts ...string) string {
+	base, err := os.UserHomeDir()
+	if err == nil {
+		if runtime.GOOS == "darwin" {
+			base = filepath.Join(base, "Library", "Application Support")
+		} else if runtime.GOOS != "windows" {
+			base = filepath.Join(base, ".config")
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if appdata := os.Getenv("APPDATA"); appdata != "" {
+			base = appdata
+		}
+	}
+	return filepath.Join(append([]string{base}, parts...)...)
+}
 
 // readJSONMap loads a JSON object file, or an empty map when absent.
 func readJSONMap(path string) (map[string]any, error) {
@@ -141,18 +161,18 @@ type chatbox struct{}
 func newChatBox() *chatbox { return &chatbox{} }
 
 func (c *chatbox) Meta() (string, string, string) {
-	return "chatbox", "ChatBox", "%APPDATA%\\ChatBox\\chatbox.config.json 注入 openai 渠道"
+	return "chatbox", "ChatBox", "用户数据目录下 ChatBox/chatbox.config.json 注入 openai 渠道"
 }
 
 func (c *chatbox) configPath() string {
-	return filepath.Join(os.Getenv("APPDATA"), "ChatBox", "chatbox.config.json")
+	return filepath.Join(appDataDir("ChatBox"), "chatbox.config.json")
 }
 
 func (c *chatbox) Detect() (bool, string, string) {
 	if fileExists(c.configPath()) {
 		return true, "", "检测到 chatbox.config.json"
 	}
-	if fileExists(filepath.Join(os.Getenv("APPDATA"), "ChatBox")) {
+	if fileExists(appDataDir("ChatBox")) {
 		return true, "", "检测到 ChatBox 数据目录（配置尚未生成，先启动一次 ChatBox）"
 	}
 	return false, "", "未检测到 ChatBox"

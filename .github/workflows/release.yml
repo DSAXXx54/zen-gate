@@ -32,14 +32,14 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}" -replace '^v',''
+          $ver = "${{ github.ref_name }}" -replace '^v','' -replace '/','-'
           go build -trimpath -ldflags "-s -w -H=windowsgui -X zen-gate/internal/gateway.Version=$ver -X zen-gate/internal/update.Current=$ver" -o dist/zen-gate.exe ./cmd/zen-gate
           go build -trimpath -ldflags "-s -w" -o dist/zenstats.exe ./cmd/zenstats
 
       - name: Package
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}" -replace '^v',''
+          $ver = "${{ github.ref_name }}" -replace '^v','' -replace '/','-'
           Copy-Item README.md dist/README.md
           if (-not (Test-Path dist/zen-gate.exe)) { throw "zen-gate.exe missing" }
           tar -a -c -f "dist/zen-gate-$ver.zip" -C dist zen-gate.exe README.md
@@ -52,3 +52,40 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" dist/zen-gate.exe dist/zenstats.exe dist/*.zip --title "${{ github.ref_name }}" --generate-notes --latest
+
+  # The macOS port builds here but is not published: the bundle is only
+  # ad-hoc signed, and shipping that would hand every user a Gatekeeper warning
+  # until there is a Developer ID to notarize against. This job is the build
+  # gate — it fails the tag when the Objective-C window layer or the universal
+  # lipo step breaks. Publish the artifact below by hand, or add signing first.
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # The darwin-only tests (launchd autostart, scutil proxy parsing, the
+      # macOS data dir) have no other place to run.
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: tools/build-macos.sh "${GITHUB_REF_NAME#v}" | tr '/' '-'
+
+      - name: Verify
+        run: |
+          lipo -info "dist/Zen Gate.app/Contents/MacOS/zen-gate"
+          codesign --verify --deep --strict "dist/Zen Gate.app"
+          plutil -lint "dist/Zen Gate.app/Contents/Info.plist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zen-gate-macos
+          path: |
+            dist/Zen Gate.app
+            dist/zen-gate-darwin
+            dist/zen-gate-*-darwin.zip
+          if-no-files-found: error

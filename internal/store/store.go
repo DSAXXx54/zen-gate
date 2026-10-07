@@ -1,5 +1,6 @@
 // Package store persists zen-gate configuration and usage statistics as
-// atomic JSON files under %APPDATA%\zen-gate (or $ZEN_GATE_HOME).
+// atomic JSON files under the OS app-data dir (%APPDATA%\zen-gate on Windows,
+// ~/Library/Application Support/zen-gate on macOS), or $ZEN_GATE_HOME.
 package store
 
 import (
@@ -18,17 +19,7 @@ import (
 )
 
 // Home returns the data directory.
-func Home() string {
-	if h := os.Getenv("ZEN_GATE_HOME"); h != "" {
-		return h
-	}
-	appdata := os.Getenv("APPDATA")
-	if appdata == "" {
-		home, _ := os.UserHomeDir()
-		appdata = filepath.Join(home, "AppData", "Roaming")
-	}
-	return filepath.Join(appdata, "zen-gate")
-}
+func Home() string { return AppDataDir() }
 
 // SubsDir is where the sing-box sidecar's generated config, log and the
 // auto-downloaded binary live.

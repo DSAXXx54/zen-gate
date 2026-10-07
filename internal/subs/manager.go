@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"zen-gate/internal/lane"
@@ -257,7 +256,7 @@ func (m *Manager) startProcess(exe, configPath string) error {
 		return err
 	}
 	cmd := exec.Command(exe, "run", "-c", configPath, "-D", store.SubsDir())
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	cmd.SysProcAttr = singBoxProcAttr()
 	cmd.Stdout, cmd.Stderr = logf, logf
 	if err := cmd.Start(); err != nil {
 		logf.Close()

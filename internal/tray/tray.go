@@ -1,18 +1,18 @@
-// Package tray runs the Windows system-tray icon and menu.
+// Package tray runs the menu-bar / system-tray icon and menu.
+//
+// The package is split in two halves because the two platforms disagree about
+// which thread owns UI: Windows is happy with the tray loop on its own locked
+// goroutine while the WebView2 window owns the main thread; macOS requires
+// *both* AppKit objects to be created on the main thread inside NSApp.run.
+// Callers therefore Register the options and then hand the thread to Loop —
+// window.Run does exactly that, differently per platform.
 package tray
 
 import (
-	_ "embed"
-	"fmt"
-	"os/exec"
 	"sync"
-	"syscall"
 
 	"github.com/getlantern/systray"
 )
-
-//go:embed assets/tray.ico
-var iconBytes []byte
 
 // Options configures the tray.
 type Options struct {
@@ -20,33 +20,33 @@ type Options struct {
 	OnQuit       func()
 	OnReprobe    func() // tray menu: re-probe availability
 	OnShow       func() // tray menu: focus the main window
-}
-
-// SetStatus updates the tray tooltip with live state. Safe to call before
-// Run: statuses are queued and applied once the tray is ready.
-func SetStatus(text string) {
-	mu.Lock()
-	defer mu.Unlock()
-	if statusCh == nil {
-		lastStatus = text
-		return
-	}
-	select {
-	case statusCh <- text:
-	default:
-	}
+	// OnReady runs on the UI thread right after the icon and menu exist. The
+	// macOS window is created from here, so it must not block.
+	OnReady func()
 }
 
 var (
+	mu         sync.Mutex
+	registered Options
+
 	statusCh   chan string
 	lastStatus string
-	mu         sync.Mutex
 )
 
-// Run blocks until the user quits from the tray menu.
-func Run(o Options) {
+// Register stores the tray configuration. It does no work on the UI thread, so
+// it is safe to call from a goroutine that is about to hand the thread to Loop.
+func Register(o Options) {
+	mu.Lock()
+	registered = o
+	mu.Unlock()
+}
+
+// Loop creates the tray icon and menu, then runs the platform event loop until
+// Quit. It must run on the thread Register was called from.
+func Loop() {
+	o := registered
 	systray.Run(func() {
-		systray.SetIcon(iconBytes)
+		setIcon()
 		systray.SetTitle("Zen Gate")
 		systray.SetTooltip("Zen Gate · 本地免费模型网关")
 		mu.Lock()
@@ -87,16 +87,33 @@ func Run(o Options) {
 				}
 			}
 		}()
-	}, o.OnQuit)
+		if o.OnReady != nil {
+			o.OnReady()
+		}
+	}, func() {
+		if o.OnQuit != nil {
+			o.OnQuit()
+		}
+	})
 }
 
-// Open opens the default browser at url.
-func Open(url string) {
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+// Quit tears the tray down, which unblocks Loop.
+func Quit() { systray.Quit() }
+
+// SetStatus updates the tray tooltip with live state. Safe to call before
+// Loop: statuses are queued and applied once the tray is ready.
+func SetStatus(text string) {
+	mu.Lock()
+	defer mu.Unlock()
+	if statusCh == nil {
+		lastStatus = text
+		return
+	}
+	select {
+	case statusCh <- text:
+	default:
+	}
 }
 
-func copyToClipboard(text string) {
-	cmd := exec.Command("cmd", "/c", fmt.Sprintf("echo %s| clip", text))
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	_ = cmd.Start()
-}
+// Open opens url in the user's default handler (browser).
+func Open(url string) { openURL(url) }
