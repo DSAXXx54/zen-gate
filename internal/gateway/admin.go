@@ -110,6 +110,10 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, rest string
 		s.adminProviderModels(w, r)
 	case rest == "models/visibility" && r.Method == http.MethodPost:
 		s.adminModelVisibility(w, r)
+	case rest == "tags/retag" && r.Method == http.MethodPost:
+		s.adminRetag(w)
+	case rest == "tags/probe" && r.Method == http.MethodPost:
+		s.adminCapabilityProbe(w, r)
 	case rest == "announcements/read" && r.Method == http.MethodPost:
 		s.adminAnnouncementRead(w, r)
 	case rest == "announcements/refresh" && r.Method == http.MethodPost:
@@ -175,20 +179,23 @@ func adminAllowed(w http.ResponseWriter, r *http.Request, mutating bool) bool {
 func (s *Server) adminState(w http.ResponseWriter) {
 	cfg := s.Store.Config()
 	cat, av, egress := s.Lane.Snapshot()
-	type modelRow struct {
-		ID            string             `json:"id"`
-		Name          string             `json:"name"`
-		Blurb         string             `json:"blurb,omitempty"`
-		State         string             `json:"state"`
-		Detail        string             `json:"detail,omitempty"`
-		TTFTMs        int64              `json:"ttftMs,omitempty"`
-		LatencyMs     int64              `json:"latencyMs,omitempty"`
-		Vision        bool               `json:"vision"`
-		Reasoning     bool               `json:"reasoning"`
-		SystemOne     bool               `json:"systemOne"`
-		ContextWindow int                `json:"contextWindow"`
-		MaxOutput     int                `json:"maxOutput"`
-		Efforts       []lane.LevelBudget `json:"efforts"`
+		type modelRow struct {
+			ID            string             `json:"id"`
+			Name          string             `json:"name"`
+			Blurb         string             `json:"blurb,omitempty"`
+			State         string             `json:"state"`
+			Detail        string             `json:"detail,omitempty"`
+			TTFTMs        int64              `json:"ttftMs,omitempty"`
+			LatencyMs     int64              `json:"latencyMs,omitempty"`
+			Vision        bool               `json:"vision"`
+			AudioInput    bool               `json:"audioInput,omitempty"`
+			FileInput     bool               `json:"fileInput,omitempty"`
+			TagSource     string             `json:"tagSource,omitempty"`
+			Reasoning     bool               `json:"reasoning"`
+			SystemOne     bool               `json:"systemOne"`
+			ContextWindow int                `json:"contextWindow"`
+			MaxOutput     int                `json:"maxOutput"`
+			Efforts       []lane.LevelBudget `json:"efforts"`
 		// Observed-quota fields (no official balance API exists upstream).
 		QuotaUsed     int   `json:"quotaUsed,omitempty"`
 		QuotaEstimate int   `json:"quotaEstimate,omitempty"`
@@ -214,11 +221,15 @@ func (s *Server) adminState(w http.ResponseWriter) {
 		row := modelRow{
 			ID: m.ID, Name: m.Name, Blurb: m.Blurb, State: stateOrDefault(p), Detail: p.Detail,
 			TTFTMs: p.TTFTMs, LatencyMs: p.LatencyMs,
-			Vision: m.Vision, Reasoning: m.Reasoning,
+			Vision: m.Vision, AudioInput: m.AudioInput, FileInput: m.FileInput,
+			Reasoning: m.Reasoning,
 			SystemOne:     m.SystemOne,
 			ContextWindow: m.ContextWindow, MaxOutput: m.MaxOutput,
 			Efforts: lane.EffortsFor(m, 0, cfg.DefaultMaxTokens),
 			Hidden:  hidden[m.ID],
+		}
+		if tag, ok := s.Store.ModelTagOf(m.ID); ok {
+			row.TagSource = tag.Source
 		}
 		row.TTFTAvgMs, row.TTFTCount = s.Store.TTFTStats(m.ID)
 		// Right after a boot the fresh probe has not run yet — fall back to
@@ -251,6 +262,13 @@ func (s *Server) adminState(w http.ResponseWriter) {
 				ProviderID: p.ID,
 				Blurb:      "自定义供应商「" + p.Name + "」",
 				Hidden:     hidden[id],
+			}
+			if caps := s.modalityCapsOf(mid); caps.Known {
+				row.Vision, row.AudioInput, row.FileInput = caps.Vision, caps.Audio, caps.File
+				row.TagSource = caps.Source
+				if caps.ContextWindow > 0 {
+					row.ContextWindow = caps.ContextWindow
+				}
 			}
 			if pr, ok := s.customProbeOf(id); ok {
 				row.State = pr.State
@@ -296,6 +314,10 @@ func (s *Server) adminState(w http.ResponseWriter) {
 			"autostart":            s.autostartState(),
 			"failoverEnabled":      cfg.FailoverEnabled,
 			"failoverMax":          cfg.FailoverMax,
+			"smartRouting":         cfg.SmartRouting,
+			"routingStrategy":      cfg.RoutingStrategy,
+			"laneFallbackToProviders": cfg.LaneFallbackToProviders,
+			"autoTagEnabled":       cfg.AutoTagEnabled,
 		},
 		"probingModel":         s.currentProbingModel(),
 		"providers":            s.providerViews(),
@@ -369,6 +391,10 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 		StatsServerURL       *string `json:"statsServerUrl"`
 		FailoverEnabled      *bool   `json:"failoverEnabled"`
 		FailoverMax          *int    `json:"failoverMax"`
+		SmartRouting         *bool   `json:"smartRouting"`
+		RoutingStrategy      *string `json:"routingStrategy"`
+		LaneFallbackToProviders *bool `json:"laneFallbackToProviders"`
+		AutoTagEnabled       *bool   `json:"autoTagEnabled"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		writeJSON(w, 400, map[string]any{"error": err.Error()})
@@ -452,6 +478,27 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 	if in.FailoverMax != nil && *in.FailoverMax > 0 && *in.FailoverMax <= 5 {
 		cfg.FailoverMax = *in.FailoverMax
 		s.Lane.SetFailover(cfg.FailoverEnabled, cfg.FailoverMax)
+		changed = true
+	}
+	if in.SmartRouting != nil {
+		cfg.SmartRouting = *in.SmartRouting
+		s.Lane.SetSmartRouting(cfg.SmartRouting)
+		changed = true
+	}
+	if in.RoutingStrategy != nil {
+		cfg.RoutingStrategy = lane.NormalizeStrategy(*in.RoutingStrategy)
+		s.Lane.SetStrategy(cfg.RoutingStrategy)
+		changed = true
+	}
+	if in.LaneFallbackToProviders != nil {
+		cfg.LaneFallbackToProviders = *in.LaneFallbackToProviders
+		changed = true
+	}
+	if in.AutoTagEnabled != nil {
+		cfg.AutoTagEnabled = *in.AutoTagEnabled
+		if s.tagger != nil {
+			s.tagger.SetEnabled(cfg.AutoTagEnabled)
+		}
 		changed = true
 	}
 	if changed {
@@ -916,6 +963,51 @@ func (s *Server) adminImport(w http.ResponseWriter, r *http.Request) {
 		s.logger.Infof("config imported; %d agent keys", len(incoming.AgentKeys))
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// adminRetag queues every provider model for a fresh AI-tagging round (the
+// 标注 button). Probe verdicts are skipped; lane models are not queued —
+// their ids are private and the curated table plus live probes own them.
+func (s *Server) adminRetag(w http.ResponseWriter) {
+	if s.tagger == nil {
+		writeJSON(w, 503, map[string]any{"ok": false, "error": "AI 标注器未就绪"})
+		return
+	}
+	ids := []string{}
+	for _, p := range s.Store.Config().Providers {
+		ids = append(ids, p.Models...)
+	}
+	s.tagger.Enqueue(ids...)
+	s.logInfof("已排队 %d 个模型等待 AI 标注", len(ids))
+	writeJSON(w, 200, map[string]any{"ok": true, "queued": len(ids)})
+}
+
+// adminCapabilityProbe runs the live 实测 probe (image/audio/PDF) for one
+// custom-provider model in the background; verdicts land in tags.json and
+// surface on the next state refresh.
+func (s *Server) adminCapabilityProbe(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	p, upstream, ok := s.providerRoute(in.ID)
+	if !ok {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "只支持自定义供应商模型（provider/模型名）"})
+		return
+	}
+	if !p.Enabled {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "供应商已停用，先到「自定义 API」开启"})
+		return
+	}
+	go func() {
+		verdicts := s.probeCapabilities(context.Background(), p, upstream)
+		s.logInfof("能力实测 %s: 视觉=%s 音频=%s 文件=%s", in.ID,
+			verdicts["vision"], verdicts["audio"], verdicts["file"])
+	}()
+	writeJSON(w, 200, map[string]any{"ok": true, "started": true})
 }
 
 // adminProbeOne re-tests a single model on demand and returns its fresh

@@ -22,6 +22,7 @@ import (
 	_ "embed"
 	"time"
 	"zen-gate/internal/announce"
+	"zen-gate/internal/autotag"
 	"zen-gate/internal/lane"
 	"zen-gate/internal/logx"
 	"zen-gate/internal/store"
@@ -75,7 +76,13 @@ type Server struct {
 	// subs is the sing-box sidecar manager, injected by main when the
 	// subscription feature is wired; nil-safe handlers fall back to errors.
 	subs SubsController
+	// tagger is the AI capability tagger, injected by main; nil-safe admin
+	// handlers degrade to a no-op.
+	tagger *autotag.Tagger
 }
+
+// SetTagger wires the AI capability tagger.
+func (s *Server) SetTagger(t *autotag.Tagger) { s.tagger = t }
 
 // SubsController is the dashboard-facing surface of the sing-box sidecar
 // manager (internal/subs.Manager): refresh subscriptions, probe nodes,
@@ -335,6 +342,11 @@ func (s *Server) hiddenSet() map[string]bool {
 	return set
 }
 
+// isProviderID reports whether a gateway id names a custom-provider model.
+// Free-lane ids never contain "/", so any id with one (e.g.
+// "nvidia-nim/deepseek-ai/deepseek-v4.1-flash") routes through providerRoute.
+func isProviderID(id string) bool { return strings.Contains(id, "/") }
+
 // VisibleModels lists the free-lane models a picker should show: everything
 // the lane advertises minus the ids the user unchecked. Routing is unaffected
 // — a hidden model requested explicitly still works.
@@ -354,6 +366,11 @@ func (s *Server) VisibleModels() []lane.ModelInfo {
 // "<providerID>/<model>", minus the ids unchecked on the 模型 page. Without
 // the custom half, 自定义 API models never reach the agents' static config and
 // their pickers show the free lane only.
+//
+// Provider entries carry the capacity defaults the Codex catalog schema
+// requires (a 0 context window surfaces downstream as "truncate immediately")
+// and the merged capability verdicts from the tag pipeline, so a picker's
+// input-modalities match what the router actually believes about the model.
 func (s *Server) InjectableModels() []lane.ModelInfo {
 	out := s.VisibleModels()
 	hidden := s.hiddenSet()
@@ -368,11 +385,24 @@ func (s *Server) InjectableModels() []lane.ModelInfo {
 			if hidden[id] {
 				continue
 			}
-			out = append(out, lane.ModelInfo{
+			entry := lane.ModelInfo{
 				ID:   id,
 				Name: id,
 				Wire: "chat",
-			})
+				// Providers do not declare capacities, but the catalog schema
+				// demands non-zero ones — 0 reads as "truncate immediately".
+				ContextWindow: 131072,
+				MaxOutput:     32768,
+			}
+			if caps := s.modalityCapsOf(m); caps.Known {
+				entry.Vision = caps.Vision
+				entry.AudioInput = caps.Audio
+				entry.FileInput = caps.File
+				if caps.ContextWindow > 0 {
+					entry.ContextWindow = caps.ContextWindow
+				}
+			}
+			out = append(out, entry)
 		}
 	}
 	return out
@@ -408,14 +438,20 @@ func (s *Server) handleCodexCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		return lane.StateUnknown
 	}
+	// Provider models sink below every free model — including region-gated
+	// ones. The free lane is the product; a provider is the user's own
+	// addition, and its entries carry no live state to rank by anyway.
 	sort.SliceStable(models, func(i, j int) bool {
-		pi, pj := priority[stateOf(models[i].ID)], priority[stateOf(models[j].ID)]
-		// Region-gated models sink to the bottom: with a CN egress they only
-		// ever answer with a RegionError.
+		pi, pj := isProviderID(models[i].ID), isProviderID(models[j].ID)
+		if pi != pj {
+			return pj // free models first
+		}
+		// Region-gated models sink to the bottom of the free half: with a CN
+		// egress they only ever answer with a RegionError.
 		if models[i].RegionSensitive != models[j].RegionSensitive {
 			return models[j].RegionSensitive
 		}
-		return pi > pj
+		return priority[stateOf(models[i].ID)] > priority[stateOf(models[j].ID)]
 	})
 	levels := []map[string]any{
 		{"effort": "low", "description": "轻量，最省额度"},
@@ -448,6 +484,12 @@ func (s *Server) handleCodexCatalog(w http.ResponseWriter, r *http.Request) {
 		if m.Vision {
 			mods = append(mods, "image")
 		}
+		// Provider entries rank at priority 5: below every free model in the
+		// picker's ordering, above nothing that the product owns.
+		entryPriority := priority[stateOf(m.ID)]
+		if isProviderID(m.ID) {
+			entryPriority = 5
+		}
 		out = append(out, map[string]any{
 			"slug":                         m.ID,
 			"display_name":                 m.Name,
@@ -462,7 +504,7 @@ func (s *Server) handleCodexCatalog(w http.ResponseWriter, r *http.Request) {
 			"input_modalities":             mods,
 			"visibility":                   "list",
 			"supported_in_api":             true,
-			"priority":                     priority[stateOf(m.ID)],
+			"priority":                     entryPriority,
 			"provider_id":                  "zen_gate",
 			"context_window":               m.ContextWindow,
 			"max_output_tokens":            m.MaxOutput,

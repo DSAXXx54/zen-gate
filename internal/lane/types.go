@@ -28,6 +28,21 @@ type TextPart struct{ Text string }
 // ImagePart is an image carried as a data URL ("data:image/png;base64,…").
 type ImagePart struct{ DataURL string }
 
+// AudioPart is an audio clip carried as base64 with a short format tag
+// ("wav", "mp3") — the OpenAI input_audio shape.
+type AudioPart struct {
+	Data   string // base64, no data: prefix
+	Format string // wav | mp3
+}
+
+// FilePart is a document carried as base64 (a PDF for the Claude wire, or any
+// file_data payload on the OpenAI wires).
+type FilePart struct {
+	Name      string // original filename, may be empty
+	MediaType string // e.g. application/pdf
+	Data      string // base64, no data: prefix
+}
+
 // ToolCallPart is a tool invocation requested by the assistant.
 type ToolCallPart struct {
 	ID        string
@@ -44,6 +59,8 @@ type ToolResultPart struct {
 
 func (TextPart) partMarker()       {}
 func (ImagePart) partMarker()      {}
+func (AudioPart) partMarker()      {}
+func (FilePart) partMarker()       {}
 func (ToolCallPart) partMarker()   {}
 func (ToolResultPart) partMarker() {}
 
@@ -114,6 +131,53 @@ type Chunk struct {
 	Finish    string
 }
 
+// Needs summarises what one request actually carries — the modality footprint
+// the router matches against model capabilities before a failover switch.
+type Needs struct {
+	Image bool `json:"image,omitempty"`
+	Audio bool `json:"audio,omitempty"`
+	File  bool `json:"file,omitempty"`
+	Tools bool `json:"tools,omitempty"`
+	// PromptTokens is a rough whole-request estimate (text/4 + images + files);
+	// only used to skip candidates whose context window clearly cannot fit.
+	PromptTokens int `json:"promptTokens,omitempty"`
+}
+
+// AnyModality reports whether the request carries anything beyond plain text.
+func (n Needs) AnyModality() bool { return n.Image || n.Audio || n.File }
+
+// SummarizeNeeds walks unified messages and computes the request's Needs.
+// Images count ~1k tokens each, files ~len/4, text ~len/4 — a deliberately
+// coarse estimate that only has to catch obvious context overflows.
+func SummarizeNeeds(messages []Message, toolCount int) Needs {
+	var n Needs
+	if toolCount > 0 {
+		n.Tools = true
+	}
+	text := 0
+	for _, m := range messages {
+		for _, p := range m.Parts {
+			switch t := p.(type) {
+			case ImagePart:
+				n.Image = true
+				n.PromptTokens += 1024
+			case AudioPart:
+				n.Audio = true
+				n.PromptTokens += len(t.Data) / 4
+			case FilePart:
+				n.File = true
+				n.PromptTokens += len(t.Data) / 4
+			case TextPart:
+				text += len(t.Text)
+			case ToolResultPart:
+				text += len(t.Text)
+			}
+		}
+	}
+	n.PromptTokens += text / 4
+	return n
+}
+
 // Request is one logical completion turn.
 type Request struct {
 	Model       string // base model id, no "(level)" suffix
@@ -124,6 +188,9 @@ type Request struct {
 	SessionSeed string // stable per-conversation identity; "" → shared
 	TurnSeed    string // stable per-turn identity for request ids; "" → mint fresh
 	Agent       string // caller label for stats (main key → "")
+	// Needs describes the request's modality footprint; the failover
+	// candidate filter matches it against model capabilities.
+	Needs Needs
 	Context     context.Context
 	// OnAttempt is called before each upstream attempt with the model about to
 	// be tried — including failover attempts. The gateway uses it to stamp the
@@ -154,6 +221,9 @@ type UpstreamError struct {
 	// Unavailable marks a gateway refusal that names the model specifically.
 	Unavailable bool
 	RetryAfter  int // seconds, when the gateway supplied one
+	// Exhausted marks that the lane had no further failover candidate left —
+	// the gateway may offer this failure to user-added providers instead.
+	Exhausted bool
 }
 
 func (e *UpstreamError) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }

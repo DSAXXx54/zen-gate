@@ -105,6 +105,23 @@ type Config struct {
 	SingBoxPath    string         `json:"singBoxPath,omitempty"`
 	FailoverEnabled      bool   `json:"failoverEnabled"`
 	FailoverMax          int    `json:"failoverMax"`
+	// SmartRouting is the multimodal-routing master switch: on = failover
+	// candidates are filtered by the request's modalities and ordered by the
+	// routing strategy; off = the exact pre-routing behaviour (catalog order,
+	// no capability filter).
+	SmartRouting bool `json:"smartRouting"`
+	// RoutingStrategy orders the failover candidate chain: catalog (default,
+	// probed-available first then listing order) or latency (first-token ms
+	// ascending inside the availability band).
+	RoutingStrategy string `json:"routingStrategy,omitempty"`
+	// LaneFallbackToProviders lets a turn exhausted on the free lane fall
+	// back to user-added providers — these bill the user's own keys, so the
+	// default is off.
+	LaneFallbackToProviders bool `json:"laneFallbackToProviders,omitempty"`
+	// AutoTagEnabled runs the background AI tagger: free-lane models classify
+	// every custom-provider model id's capabilities (vision/audio/file) into
+	// tags.json.
+	AutoTagEnabled bool `json:"autoTagEnabled"`
 	Providers            []Provider `json:"providers,omitempty"`
 	// HiddenModels lists gateway model ids the user unchecked on the 模型 page:
 	// they stay servable if requested explicitly but disappear from agent
@@ -153,6 +170,27 @@ type QuotaNote struct {
 
 const quotaEpisodeTTL = 14 * 24 * time.Hour
 
+// Tag sources, ordered by trust: a live capability probe beats the AI tagger,
+// which beats the name heuristics baked into the binary.
+const (
+	TagSourceProbe  = "实测"
+	TagSourceAI     = "AI标注"
+	TagSourceHeuris = "规则"
+)
+
+// ModelTag is one model's capability verdict from an external source (AI
+// tagger or live probe). Bools are explicit: false means "this source says
+// no", not "unknown" — absence from the map means unknown.
+type ModelTag struct {
+	Vision        bool   `json:"vision"`
+	Audio         bool   `json:"audio"`
+	File          bool   `json:"file"`
+	ContextWindow int    `json:"contextWindow,omitempty"`
+	MaxOutput     int    `json:"maxOutput,omitempty"`
+	Source        string `json:"source"`
+	At            int64  `json:"at"` // epoch ms
+}
+
 // Store owns config + stats files.
 type Store struct {
 	Home      string
@@ -161,6 +199,7 @@ type Store struct {
 	quota     map[string]QuotaNote
 	perf      map[string][]int64 // per-model probe first-token samples (ms)
 	perfDirty bool
+	tags      map[string]ModelTag
 	mu        sync.Mutex
 }
 
@@ -314,6 +353,19 @@ func Open() (*Store, error) {
 	if cfg.SchemaVersion < 9 {
 		cfg.SchemaVersion = 9
 	}
+	// v10: multimodal smart routing. The master switch and the AI tagger ship
+	// enabled; cross-lane fallback stays off (it bills the user's own keys).
+	if cfg.SchemaVersion < 10 {
+		cfg.SchemaVersion = 10
+		cfg.SmartRouting = true
+		cfg.AutoTagEnabled = true
+		if strings.TrimSpace(cfg.RoutingStrategy) == "" {
+			cfg.RoutingStrategy = "catalog"
+		}
+	}
+	if cfg.RoutingStrategy == "" {
+		cfg.RoutingStrategy = "catalog"
+	}
 	if cfg.SchemaVersion == 0 {
 		// first migration to the versioned schema: mature defaults
 		cfg.SchemaVersion = 1
@@ -346,7 +398,40 @@ func Open() (*Store, error) {
 		perf = &map[string][]int64{}
 	}
 	s.perf = *perf
+
+	tags, err := loadJSON[map[string]ModelTag](filepath.Join(home, "tags.json"))
+	if err != nil || tags == nil {
+		tags = &map[string]ModelTag{}
+	}
+	s.tags = *tags
 	return s, nil
+}
+
+// SetModelTag records one model's capability verdict and persists tags.json.
+func (s *Store) SetModelTag(model string, t ModelTag) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tags[model] = t
+	_ = writeJSON(filepath.Join(s.Home, "tags.json"), s.tags)
+}
+
+// ModelTagOf returns one model's stored capability verdict, if any.
+func (s *Store) ModelTagOf(model string) (ModelTag, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tags[model]
+	return t, ok
+}
+
+// SnapshotTags copies every stored capability verdict.
+func (s *Store) SnapshotTags() map[string]ModelTag {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]ModelTag, len(s.tags))
+	for k, v := range s.tags {
+		out[k] = v
+	}
+	return out
 }
 
 // SetQuotaNote replaces one model's persisted quota note.

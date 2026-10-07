@@ -64,18 +64,28 @@ func RepairToolPairing(messages []Message) []Message {
 	return out
 }
 
+// chatContentPart renders one non-text part for the chat wire.
+func chatContentPart(p Part) map[string]any {
+	switch t := p.(type) {
+	case ImagePart:
+		return map[string]any{"type": "image_url", "image_url": map[string]any{"url": t.DataURL}}
+	case AudioPart:
+		return map[string]any{"type": "input_audio", "input_audio": map[string]any{"data": t.Data, "format": t.Format}}
+	case FilePart:
+		return map[string]any{"type": "file", "file": map[string]any{
+			"filename": t.Name, "file_data": "data:" + t.MediaType + ";base64," + t.Data}}
+	}
+	return nil
+}
+
 // ToChatMessages projects unified messages onto the chat wire.
 func ToChatMessages(messages []Message) []map[string]any {
 	out := []map[string]any{}
-	pendingImages := []string{}
-	flushImages := func() {
-		if len(pendingImages) > 0 {
-			parts := []map[string]any{}
-			for _, u := range pendingImages {
-				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": u}})
-			}
-			out = append(out, map[string]any{"role": RoleUser, "content": parts})
-			pendingImages = nil
+	pendingParts := []map[string]any{}
+	flushParts := func() {
+		if len(pendingParts) > 0 {
+			out = append(out, map[string]any{"role": RoleUser, "content": pendingParts})
+			pendingParts = nil
 		}
 	}
 	for _, m := range messages {
@@ -83,32 +93,30 @@ func ToChatMessages(messages []Message) []map[string]any {
 		case RoleSystem:
 			text := m.TextOf()
 			if strings.TrimSpace(text) != "" {
-				flushImages()
+				flushParts()
 				out = append(out, map[string]any{"role": "system", "content": text})
 			}
 		case RoleUser:
 			text := ""
 			for _, p := range m.Parts {
-				switch t := p.(type) {
-				case TextPart:
+				if t, ok := p.(TextPart); ok {
 					text += t.Text
-				case ImagePart:
-					pendingImages = append(pendingImages, t.DataURL)
+					continue
+				}
+				if part := chatContentPart(p); part != nil {
+					pendingParts = append(pendingParts, part)
 				}
 			}
 			content := any(text)
-			if len(pendingImages) > 0 && text == "" {
-				parts := []map[string]any{}
-				for _, u := range pendingImages {
-					parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": u}})
-				}
-				pendingImages = nil
+			if len(pendingParts) > 0 && text == "" {
+				parts := pendingParts
+				pendingParts = nil
 				content = parts
 			}
-			// With both text and images, the text turn goes first and the
-			// images follow as their own user turn (the trailing flushImages).
+			// With both text and non-text parts, the text turn goes first and
+			// the parts follow as their own user turn (the trailing flushParts).
 			out = append(out, map[string]any{"role": RoleUser, "content": content})
-			flushImages()
+			flushParts()
 		case RoleAssistant:
 			text := ""
 			tools := []map[string]any{}
@@ -135,7 +143,7 @@ func ToChatMessages(messages []Message) []map[string]any {
 			if len(tools) > 0 {
 				msg["tool_calls"] = tools
 			}
-			flushImages()
+			flushParts()
 			out = append(out, msg)
 		case RoleTool:
 			text := ""
@@ -154,7 +162,7 @@ func ToChatMessages(messages []Message) []map[string]any {
 			out = append(out, map[string]any{"role": "tool", "tool_call_id": toolCallID, "content": text})
 		}
 	}
-	flushImages()
+	flushParts()
 	return out
 }
 
@@ -194,6 +202,21 @@ func ToClaudeMessages(messages []Message) (system string, out []map[string]any) 
 						rest = append(rest, map[string]any{"type": "image",
 							"source": map[string]any{"type": "base64", "media_type": media, "data": data}})
 					}
+				case FilePart:
+					// The Claude wire takes PDF documents; other media types
+					// have no Anthropic representation and are dropped (the
+					// modality filter keeps such requests off this wire's
+					// models anyway).
+					if t.Data != "" && t.MediaType == "application/pdf" {
+						block := map[string]any{"type": "document",
+							"source": map[string]any{"type": "base64", "media_type": t.MediaType, "data": t.Data}}
+						if t.Name != "" {
+							block["title"] = t.Name
+						}
+						rest = append(rest, block)
+					}
+				case AudioPart:
+					// Anthropic accepts no audio input; skip.
 				case ToolResultPart:
 					block := map[string]any{"type": "tool_result", "tool_use_id": t.ToolCallID, "content": t.Text}
 					if t.IsError {
@@ -261,6 +284,15 @@ func ToResponseInput(messages []Message) (instructions string, out []map[string]
 					text += t.Text
 				case ImagePart:
 					items = append(items, map[string]any{"type": "input_image", "image_url": t.DataURL})
+				case AudioPart:
+					items = append(items, map[string]any{"type": "input_audio", "data": t.Data, "format": t.Format})
+				case FilePart:
+					item := map[string]any{"type": "input_file",
+						"file_data": "data:" + t.MediaType + ";base64," + t.Data}
+					if t.Name != "" {
+						item["filename"] = t.Name
+					}
+					items = append(items, item)
 				}
 			}
 			if strings.TrimSpace(text) != "" || len(items) > 0 {

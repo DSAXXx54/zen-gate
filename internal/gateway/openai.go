@@ -18,6 +18,14 @@ type openaiContentPart struct {
 	ImageURL *struct {
 		URL string `json:"url"`
 	} `json:"image_url"`
+	InputAudio *struct {
+		Data   string `json:"data"`
+		Format string `json:"format"`
+	} `json:"input_audio"`
+	File *struct {
+		Filename string `json:"filename"`
+		FileData string `json:"file_data"`
+	} `json:"file"`
 }
 
 type openaiToolCall struct {
@@ -117,6 +125,13 @@ func responsesContentParts(raw json.RawMessage) []lane.Part {
 		Type     string          `json:"type"`
 		Text     string          `json:"text"`
 		ImageURL json.RawMessage `json:"image_url"`
+		// Responses-API audio/file parts carry their payload flat on the part
+		// ({"type":"input_audio","data":…,"format":…}), unlike the chat wire's
+		// nested input_audio/file objects.
+		Data     string `json:"data"`
+		Format   string `json:"format"`
+		Filename string `json:"filename"`
+		FileData string `json:"file_data"`
 	}
 	if err := json.Unmarshal(raw, &arr); err != nil {
 		return nil
@@ -145,9 +160,38 @@ func responsesContentParts(raw json.RawMessage) []lane.Part {
 			if url != "" {
 				parts = append(parts, lane.ImagePart{DataURL: url})
 			}
+		case "input_audio":
+			if p.Data != "" {
+				format := p.Format
+				if format == "" {
+					format = "wav"
+				}
+				parts = append(parts, lane.AudioPart{Data: p.Data, Format: format})
+			}
+		case "input_file":
+			if p.FileData != "" {
+				media, data := splitFileData(p.FileData)
+				if data != "" {
+					if media == "" {
+						media = "application/octet-stream"
+					}
+					parts = append(parts, lane.FilePart{Name: p.Filename, MediaType: media, Data: data})
+				}
+			}
 		}
 	}
 	return parts
+}
+
+// splitFileData splits a "data:<media>;base64,<data>" payload into its media
+// type and raw base64 body.
+func splitFileData(fileData string) (media, data string) {
+	rest := strings.TrimPrefix(fileData, "data:")
+	semi := strings.Index(rest, ";base64,")
+	if semi < 0 {
+		return "", ""
+	}
+	return rest[:semi], rest[semi+len(";base64,"):]
 }
 
 // partsOfContent decodes string-or-parts content; when wantText is set the
@@ -182,6 +226,24 @@ func partsOfContent(raw json.RawMessage, wantText *string) []lane.Part {
 			if p.ImageURL != nil && p.ImageURL.URL != "" {
 				parts = append(parts, lane.ImagePart{DataURL: p.ImageURL.URL})
 			}
+		case "input_audio":
+			if p.InputAudio != nil && p.InputAudio.Data != "" {
+				format := p.InputAudio.Format
+				if format == "" {
+					format = "wav"
+				}
+				parts = append(parts, lane.AudioPart{Data: p.InputAudio.Data, Format: format})
+			}
+		case "file":
+			if p.File != nil && p.File.FileData != "" {
+				media, data := splitFileData(p.File.FileData)
+				if data != "" {
+					if media == "" {
+						media = "application/octet-stream"
+					}
+					parts = append(parts, lane.FilePart{Name: p.File.Filename, MediaType: media, Data: data})
+				}
+			}
 		}
 	}
 	return parts
@@ -213,6 +275,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, openaiError("messages must not be empty", "invalid_request_error"))
 		return
 	}
+	needs := lane.SummarizeNeeds(unified, len(req.Tools))
 	// Namespaced model id → user-added provider; the turn never touches the
 	// free lane in that case.
 	if p, upstream, ok := s.providerRoute(req.Model); ok {
@@ -246,15 +309,44 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		outcome, uerr := s.Lane.Complete(ctx, lane.Request{
 			Model: model, Effort: effort, Messages: unified,
 			Tools: convertOpenAITools(req.Tools), MaxTokens: maxTok,
-			SessionSeed: seed, TurnSeed: turn, Agent: agent,
+			SessionSeed: seed, TurnSeed: turn, Agent: agent, Needs: needs,
 		}, func(c lane.Chunk) {
 			emit.consume(c, &text, &reasoning, &toolCalls)
 		})
 		if uerr != nil && text.Len() == 0 && len(toolCalls) == 0 {
+			// Free lane exhausted and the user opted in: offer the turn to
+			// user-added providers before reporting the lane's failure.
+			if uerr.Exhausted && s.fallbackEnabled() {
+				if usage, finish, served, _, ok := s.providerFallback(ctx,
+					s.providerFallbackPicks(needs, base), unified,
+					convertOpenAITools(req.Tools), maxTok, agent,
+					func(c lane.Chunk) { emit.consume(c, &text, &reasoning, &toolCalls) }); ok {
+					w.Header().Set("x-zen-gate-served-by", served)
+					msg := map[string]any{"role": "assistant", "content": text.String()}
+					if reasoning.Len() > 0 {
+						msg["reasoning_content"] = reasoning.String()
+					}
+					if len(toolCalls) > 0 {
+						msg["tool_calls"] = toolCalls
+					}
+					outFinish := "stop"
+					if finish == "" {
+						outFinish = "length"
+					} else {
+						outFinish = mapFinish(finish)
+					}
+					writeJSON(w, 200, map[string]any{
+						"id": id, "object": "chat.completion", "created": created, "model": served,
+						"choices": []any{map[string]any{"index": 0, "message": msg, "finish_reason": outFinish}},
+						"usage":   usagePayload(usage),
+					})
+					return
+				}
+			}
 			setRetryAfter(w, uerr)
 			body := openaiError(uerr.Message, errorType(uerr))
 			if uerr.Code == lane.CodeQuota {
-				body = withSuggestions(body, s.Lane.Candidates(base, 3))
+				body = withSuggestions(body, s.Lane.Candidates(needs, base, 3))
 			}
 			writeJSON(w, errorStatus(uerr), body)
 			return
@@ -307,7 +399,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	outcome, uerr := s.Lane.Complete(ctx, lane.Request{
 		Model: model, Effort: effort, Messages: unified,
 		Tools: convertOpenAITools(req.Tools), MaxTokens: maxTok,
-		SessionSeed: seed, TurnSeed: turn, Agent: agent,
+		SessionSeed: seed, TurnSeed: turn, Agent: agent, Needs: needs,
 	}, func(c lane.Chunk) {
 		for _, d := range emit.stream(c) {
 			sendChunk(d.delta, nil, nil)
@@ -315,10 +407,39 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	})
 	served := servedModel(outcome, base)
 	if uerr != nil && !emit.hasAny() {
+		// Free lane exhausted and the user opted in: continue the same SSE
+		// stream from a user-added provider.
+		if uerr.Exhausted && s.fallbackEnabled() {
+			if usage, finish, fbServed, _, ok := s.providerFallback(ctx,
+				s.providerFallbackPicks(needs, base), unified,
+				convertOpenAITools(req.Tools), maxTok, agent,
+				func(c lane.Chunk) {
+					for _, d := range emit.stream(c) {
+						sendChunk(d.delta, nil, nil)
+					}
+				}); ok {
+				outFinish := "stop"
+				if finish == "" {
+					outFinish = "length"
+				} else {
+					outFinish = mapFinish(finish)
+				}
+				sendChunk(map[string]any{}, outFinish, nil)
+				if req.StreamOptions != nil && req.StreamOptions.IncludeUsage {
+					sse.event(map[string]any{
+						"id": id, "object": "chat.completion.chunk", "created": created, "model": fbServed,
+						"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": nil}},
+						"usage":   usagePayload(usage),
+					})
+				}
+				sse.done()
+				return
+			}
+		}
 		setRetryAfter(w, uerr)
 		body := openaiError(uerr.Message, errorType(uerr))
 		if uerr.Code == lane.CodeQuota {
-			body = withSuggestions(body, s.Lane.Candidates(base, 3))
+			body = withSuggestions(body, s.Lane.Candidates(needs, base, 3))
 		}
 		writeJSON(w, errorStatus(uerr), body)
 		return
@@ -626,6 +747,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, openaiError("input must not be empty", "invalid_request_error"))
 		return
 	}
+	needs := lane.SummarizeNeeds(unified, len(req.Tools))
 	// Namespaced model id → user-added provider (converted to its chat wire).
 	if p, upstream, ok := s.providerRoute(req.Model); ok {
 		if !p.Enabled {
@@ -651,14 +773,28 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		Model: model, Effort: effort, Messages: unified,
 		Tools: convertOpenAITools(req.Tools), MaxTokens: req.MaxOutputTokens,
 		SessionSeed: seed, TurnSeed: turn,
-			Agent:       agent,
+			Agent:       agent, Needs: needs,
 	}, collector.consume)
 	served := servedModel(outcome, base)
 	if uerr != nil && !collector.hasAnything() {
+		if uerr.Exhausted && s.fallbackEnabled() {
+			if usage, finish, fbServed, _, ok := s.providerFallback(ctx,
+				s.providerFallbackPicks(needs, base), unified,
+				convertOpenAITools(req.Tools), req.MaxOutputTokens, agent, collector.consume); ok {
+				fbOutcome := lane.Outcome{Usage: usage, Finish: finish, ServedModel: fbServed}
+				w.Header().Set("x-zen-gate-served-by", fbServed)
+				if req.Stream {
+					s.writeResponsesEvents(w, fbServed, collector, fbOutcome)
+				} else {
+					writeJSON(w, 200, collector.finalResponse(fbServed, fbOutcome, false))
+				}
+				return
+			}
+		}
 		setRetryAfter(w, uerr)
 		body := openaiError(uerr.Message, errorType(uerr))
 		if uerr.Code == lane.CodeQuota {
-			body = withSuggestions(body, s.Lane.Candidates(base, 3))
+			body = withSuggestions(body, s.Lane.Candidates(needs, base, 3))
 		}
 		writeJSON(w, errorStatus(uerr), body)
 		return

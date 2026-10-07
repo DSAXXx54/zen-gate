@@ -1,0 +1,137 @@
+package gateway
+
+// Live capability probe (实测): send the smallest possible image / audio /
+// PDF turn through the user's own provider key and record what the model
+// actually accepts. A probe verdict outranks the AI tagger and the name
+// heuristics — the project's rule is "what the upstream accepted", not what
+// a model card claims.
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/base64"
+	"fmt"
+	"strings"
+	"time"
+
+	"zen-gate/internal/lane"
+	"zen-gate/internal/relay"
+	"zen-gate/internal/store"
+)
+
+// probePNG is a 1×1 transparent PNG — the smallest legal image.
+const probePNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+// tinyWAV builds 0.1s of silent mono 8 kHz 16-bit PCM as a valid WAV.
+func tinyWAV() []byte {
+	const sampleRate = 8000
+	const samples = 800
+	dataLen := samples * 2
+	buf := &bytes.Buffer{}
+	buf.WriteString("RIFF")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(36+dataLen))
+	buf.WriteString("WAVEfmt ")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(1))  // PCM
+	_ = binary.Write(buf, binary.LittleEndian, uint16(1))  // mono
+	_ = binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
+	_ = binary.Write(buf, binary.LittleEndian, uint32(sampleRate*2))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(2))  // block align
+	_ = binary.Write(buf, binary.LittleEndian, uint16(16)) // bits
+	buf.WriteString("data")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(dataLen))
+	buf.Write(make([]byte, dataLen))
+	return buf.Bytes()
+}
+
+// tinyPDF assembles a minimal one-page PDF (one word, real xref offsets).
+func tinyPDF() []byte {
+	content := "BT /F1 12 Tf 20 100 Td (OK) Tj ET"
+	objs := []string{
+		"<</Type/Catalog/Pages 2 0 R>>",
+		"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+		"<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
+		fmt.Sprintf("<</Length %d>>\nstream\n%s\nendstream", len(content), content),
+		"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+	}
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := make([]int, len(objs))
+	for i, body := range objs {
+		offsets[i] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, body)
+	}
+	xrefAt := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 %d\n", len(objs)+1)
+	buf.WriteString("0000000000 65535 f \n")
+	for _, off := range offsets {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
+	}
+	fmt.Fprintf(&buf, "trailer\n<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n", len(objs)+1, xrefAt)
+	return buf.Bytes()
+}
+
+// probeVerdict is one modality's probe outcome.
+const (
+	verdictYes     = "yes"
+	verdictNo      = "no"
+	verdictUnknown = "unknown"
+)
+
+// probeOneModality sends one modality's minimal turn through the provider.
+// "yes" = the upstream answered; "no" = it rejected the modality itself
+// (400-class model error); "unknown" = anything else (quota, transport…) —
+// an inconclusive probe must never be recorded as a capability verdict.
+func probeOneModality(ctx context.Context, p *store.Provider, model string, part lane.Part) string {
+	msgs := []lane.Message{{Role: lane.RoleUser, Parts: []lane.Part{
+		part, lane.TextPart{Text: "Reply with exactly: OK"}}}}
+	var sb strings.Builder
+	_, _, uerr := relay.Complete(ctx, relay.Turn{
+		Provider: p, Model: model, Messages: msgs, MaxTokens: 16, Agent: "capsprobe",
+	}, func(c lane.Chunk) {
+		if c.Kind == lane.ChunkTextDelta {
+			sb.WriteString(c.Delta)
+		}
+	})
+	if uerr == nil {
+		return verdictYes
+	}
+	if uerr.Code == lane.CodeServer && uerr.Unavailable {
+		return verdictNo
+	}
+	return verdictUnknown
+}
+
+// probeCapabilities runs all three modality probes for one custom-provider
+// model. The tag is only stored when every probe reached a verdict — a
+// half-verdict would hard-filter modalities the model may well support.
+func (s *Server) probeCapabilities(ctx context.Context, p *store.Provider, model string) (verdicts map[string]string) {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	defer cancel()
+	verdicts = map[string]string{}
+	steps := []struct {
+		name string
+		part lane.Part
+	}{
+		{"vision", lane.ImagePart{DataURL: "data:image/png;base64," + probePNG}},
+		{"audio", lane.AudioPart{Data: base64.StdEncoding.EncodeToString(tinyWAV()), Format: "wav"}},
+		{"file", lane.FilePart{Name: "probe.pdf", MediaType: "application/pdf", Data: base64.StdEncoding.EncodeToString(tinyPDF())}},
+	}
+	for _, step := range steps {
+		verdicts[step.name] = probeOneModality(ctx, p, model, step.part)
+		s.logInfof("能力实测 %s [%s] → %s", model, step.name, verdicts[step.name])
+	}
+	for _, v := range verdicts {
+		if v == verdictUnknown {
+			return verdicts
+		}
+	}
+	s.Store.SetModelTag(model, store.ModelTag{
+		Vision: verdicts["vision"] == verdictYes,
+		Audio:  verdicts["audio"] == verdictYes,
+		File:   verdicts["file"] == verdictYes,
+		Source: store.TagSourceProbe, At: time.Now().UnixMilli(),
+	})
+	return verdicts
+}

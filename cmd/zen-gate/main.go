@@ -20,6 +20,7 @@ import (
 
 	"zen-gate/internal/agents"
 	"zen-gate/internal/announce"
+	"zen-gate/internal/autotag"
 	"zen-gate/internal/gateway"
 	"zen-gate/internal/lane"
 	"zen-gate/internal/logx"
@@ -78,10 +79,30 @@ func main() {
 	update.CleanupBackup() // remove the previous binary left by 一键更新
 	logger.Infof("zen-gate %s 启动 (port %d, proxy %s)", gateway.Version, cfg.Port, cfg.ProxyMode)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	ln := lane.NewLane()
 	ln.SetDefaultMaxTokens(cfg.DefaultMaxTokens)
 	ln.SetExposeRegion(cfg.ExposeRegion)
 	ln.SetFailover(cfg.FailoverEnabled, cfg.FailoverMax)
+	// Smart routing: master switch + failover ordering strategy + the runtime
+	// first-token sample ring that the latency strategy ranks by.
+	ln.SetSmartRouting(cfg.SmartRouting)
+	ln.SetStrategy(cfg.RoutingStrategy)
+	ln.SetTTFTSource(func(model string) int64 {
+		avg, _ := st.TTFTStats(model)
+		return avg
+	})
+	// Re-apply persisted capability tags (AI tagger / live probes) so the
+	// catalog's modality verdicts survive restarts.
+	for id, tag := range st.SnapshotTags() {
+		audio, file, vision := tag.Audio, tag.File, tag.Vision
+		ln.ApplyCapabilityTags(id, lane.CapabilityTags{
+			Audio: &audio, File: &file, Vision: &vision,
+			ContextWindow: tag.ContextWindow, MaxOutput: tag.MaxOutput,
+		})
+	}
 	ln.LoadThrottleNotes(quotaNotesFromStore(st.SnapshotQuota()))
 	ln.SetThrottleUpdate(func(model string, note lane.ThrottleNote) {
 		qn := store.QuotaNote{ThrottledAt: note.ThrottledAt, CooldownUntil: note.CooldownUntil, LastOK: note.LastOK}
@@ -122,11 +143,31 @@ func main() {
 	gw.SetAgents(reg)
 	gw.SetSubs(mgr)
 	gw.SetLogger(logger)
+	// AI capability tagger: classifies provider model ids (and fills the lane
+	// catalog's unverified audio/file fields) using the free lane itself.
+	tagger := autotag.New(ln, st, logger.Infof)
+	tagger.SetEnabled(cfg.AutoTagEnabled)
+	tagger.Start(ctx)
+	gw.SetTagger(tagger)
+	enqueueUntagged := func() {
+		ids := []string{}
+		for _, p := range st.Config().Providers {
+			for _, m := range p.Models {
+				if _, ok := st.ModelTagOf(m); !ok {
+					ids = append(ids, m)
+				}
+			}
+		}
+		// Lane models are deliberately NOT tagged: their ids are private, the
+		// LLM cannot know them, and asking only burns thinking budget — the
+		// curated table plus live probes own the lane's verdicts.
+		if len(ids) > 0 {
+			tagger.Enqueue(ids...)
+		}
+	}
+	enqueueUntagged()
 	window.SetDiag(func(msg string) { logger.Infof("%s", msg) })
 	gw.SetAutostartState(agents.AutostartEnabled)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	stateText := func(s string) string {
 		return map[string]string{lane.StateAvailable: "可用", lane.StateUnknown: "未知",

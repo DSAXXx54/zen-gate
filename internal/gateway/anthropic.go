@@ -14,6 +14,7 @@ import (
 type anthropicContentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	Title string `json:"title"`
 	Source *struct {
 		Type      string `json:"type"`
 		MediaType string `json:"media_type"`
@@ -104,6 +105,16 @@ func anthropicParts(raw json.RawMessage, wantText *string) []lane.Part {
 			if b.Source != nil && b.Source.Type == "base64" && b.Source.Data != "" {
 				parts = append(parts, lane.ImagePart{DataURL: "data:" + b.Source.MediaType + ";base64," + b.Source.Data})
 			}
+		case "document":
+			// Anthropic document blocks are PDFs: base64 source today (url
+			// sources would leak the gateway's egress to a third party).
+			if b.Source != nil && b.Source.Type == "base64" && b.Source.Data != "" {
+				media := b.Source.MediaType
+				if media == "" {
+					media = "application/pdf"
+				}
+				parts = append(parts, lane.FilePart{Name: b.Title, MediaType: media, Data: b.Source.Data})
+			}
 		case "tool_use":
 			args := strings.TrimSpace(string(b.Input))
 			if args == "" {
@@ -159,6 +170,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	seed := SessionSeed(agent, user, unified)
 	turn := TurnSeed(unified)
 	model := req.Model
+	needs := lane.SummarizeNeeds(unified, len(req.Tools))
 	effortDeclared := ""
 	if req.Thinking != nil && req.Thinking.Type == "enabled" && req.Thinking.BudgetTokens > 0 {
 		switch b := req.Thinking.BudgetTokens; {
@@ -195,10 +207,20 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		outcome, uerr := s.Lane.Complete(ctx, lane.Request{
 			Model: model, Effort: effort, Messages: unified, Tools: tools,
 			MaxTokens: req.MaxTokens, SessionSeed: seed, TurnSeed: turn,
-			Agent:       agent,
+			Agent: agent, Needs: needs,
 		}, collector.consume)
 		served := servedModel(outcome, base)
 		if uerr != nil && !collector.hasAnything() {
+			if uerr.Exhausted && s.fallbackEnabled() {
+				if usage, finish, fbServed, _, ok := s.providerFallback(ctx,
+					s.providerFallbackPicks(needs, base), unified, tools,
+					req.MaxTokens, agent, collector.consume); ok {
+					fbOutcome := lane.Outcome{Usage: usage, Finish: finish, ServedModel: fbServed}
+					w.Header().Set("x-zen-gate-served-by", fbServed)
+					writeJSON(w, 200, anthropicResponse(randomID("msg_"), fbServed, collector, fbOutcome))
+					return
+				}
+			}
 			setRetryAfter(w, uerr)
 			writeJSON(w, errorStatus(uerr), map[string]any{"type": "error", "error": map[string]any{"type": errorType(uerr), "message": uerr.Message}})
 			return
@@ -223,7 +245,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	outcome, uerr := s.Lane.Complete(ctx, lane.Request{
 		Model: model, Effort: effort, Messages: unified, Tools: tools,
 		MaxTokens: req.MaxTokens, SessionSeed: seed, TurnSeed: turn,
-			Agent:       agent,
+			Agent: agent, Needs: needs,
 	}, st.consume)
 	stop := "end_turn"
 	switch {
@@ -233,6 +255,28 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		stop = "max_tokens"
 	}
 	if uerr != nil && outcome.Finish == "" && !st.sawAny {
+		if uerr.Exhausted && s.fallbackEnabled() {
+			fbMaxTok := req.MaxTokens
+			if fbMaxTok <= 0 {
+				fbMaxTok = 8192
+			}
+			if usage, finish, _, _, ok := s.providerFallback(ctx,
+				s.providerFallbackPicks(needs, base), unified, tools,
+				fbMaxTok, agent, st.consume); ok {
+				stop := "end_turn"
+				switch {
+				case finish == lane.FinishToolCalls:
+					stop = "tool_use"
+				case finish == lane.FinishMaxTokens || finish == "":
+					stop = "max_tokens"
+				}
+				sse.event(map[string]any{"type": "message_delta",
+					"delta": map[string]any{"stop_reason": stop, "stop_sequence": nil},
+					"usage": map[string]any{"output_tokens": usage.Output}})
+				sse.event(map[string]any{"type": "message_stop"})
+				return
+			}
+		}
 		sse.event(map[string]any{"type": "error", "error": map[string]any{"type": errorType(uerr), "message": uerr.Message}})
 		return
 	}

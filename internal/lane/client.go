@@ -58,6 +58,9 @@ type Lane struct {
 	exposeRegion     bool
 	failoverEnabled  bool
 	failoverMax      int
+	smartRouting     bool
+	strategy         string
+	ttft             TTFTSource
 	throttle         *ThrottleBook
 
 	probing        atomicFlag
@@ -99,6 +102,8 @@ func NewLane() *Lane {
 		exposeRegion:     true,
 		failoverEnabled:  true,
 		failoverMax:      2,
+		smartRouting:     true,
+		strategy:         StrategyCatalog,
 		throttle:         NewThrottleBook(),
 	}
 }
@@ -460,12 +465,22 @@ func (l *Lane) Complete(ctx context.Context, req Request, emit func(Chunk)) (Out
 			return out, nil
 		}
 		// No switch after content reached the caller (it would duplicate
-		// output), on egress-wide failures, or once the attempt budget is out.
-		if !failover || failovers >= failoverMax || sawAny || !switchableFailure(uerr) {
+		// output), on egress-wide failures, or when the caller's own model
+		// error can't plausibly be answered by another model.
+		if !failover || sawAny || !switchableFailure(uerr) {
 			return out, uerr
 		}
-		next := l.nextCandidateFrom(tried)
+		next := l.nextCandidate(req.Needs, tried)
 		if next == "" {
+			// The lane has nothing left to offer this request — tell the
+			// gateway so it can (optionally) offer the turn to user-added
+			// providers.
+			uerr.Exhausted = true
+			return out, uerr
+		}
+		if failovers >= failoverMax {
+			// Attempt budget spent, but the lane still holds untried
+			// candidates — not exhausted, just capped.
 			return out, uerr
 		}
 		tried[next] = true
@@ -487,11 +502,11 @@ func switchableFailure(uerr *UpstreamError) bool {
 
 // Candidates lists up to n failover targets — the hint a 429 error body
 // carries when the gateway itself ran out of models to try.
-func (l *Lane) Candidates(exclude string, n int) []string {
+func (l *Lane) Candidates(needs Needs, exclude string, n int) []string {
 	tried := map[string]bool{exclude: true}
 	out := []string{}
 	for len(out) < n {
-		c := l.nextCandidateFrom(tried)
+		c := l.nextCandidate(needs, tried)
 		if c == "" {
 			break
 		}
@@ -501,36 +516,51 @@ func (l *Lane) Candidates(exclude string, n int) []string {
 	return out
 }
 
-// nextCandidateFrom picks the best failover target: probed-available models
+// nextCandidate picks the best failover target: probed-available models
 // first, then unprobed ones; throttled, region-blocked, unavailable, decision
-// models and already-tried ids are skipped. Ties keep catalog order.
-func (l *Lane) nextCandidateFrom(tried map[string]bool) string {
+// models and already-tried ids are skipped. With smart routing on, candidates
+// that cannot carry the request's modalities are hard-filtered and the
+// selected strategy (latency) orders inside the availability band; with it
+// off, or with the catalog strategy, ties keep catalog order.
+func (l *Lane) nextCandidate(needs Needs, tried map[string]bool) string {
 	l.mu.RLock()
 	cat := make([]ModelInfo, len(l.catalog))
 	copy(cat, l.catalog)
-	av := map[string]string{}
+	av := make(map[string]ProbeResult, len(l.availability))
 	for k, v := range l.availability {
-		av[k] = v.State
+		av[k] = v
 	}
+	smart := l.smartRouting
+	strategy := l.strategy
+	ttftFn := l.ttft
 	l.mu.RUnlock()
 
-	best, bestRank := "", 99
-	for _, m := range cat {
+	best, bestKey := "", candidateKey{avail: 99}
+	for i, m := range cat {
 		if m.SystemOne || m.Wire == "systemone" {
 			continue
 		}
 		if tried[m.ID] || l.throttle.Throttled(m.ID) {
 			continue
 		}
-		rank := 1
-		switch av[m.ID] {
-		case StateAvailable:
-			rank = 0
+		switch av[m.ID].State {
 		case StateUnavailable, StateRegionBlock:
 			continue
 		}
-		if rank < bestRank {
-			best, bestRank = m.ID, rank
+		if smart {
+			if !satisfiesNeeds(m, needs) {
+				continue
+			}
+			if needs.PromptTokens > 0 && m.ContextWindow > 0 && needs.PromptTokens > m.ContextWindow {
+				continue
+			}
+		}
+		key := l.candidateKey(m, i, av[m.ID], strategy, ttftFn)
+		if !smart {
+			key = candidateKey{avail: key.avail, catalogIdx: key.catalogIdx}
+		}
+		if best == "" || lessCandidate(key, bestKey) {
+			best, bestKey = m.ID, key
 		}
 	}
 	return best

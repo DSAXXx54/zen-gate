@@ -855,6 +855,15 @@ function renderModels(s){
       refresh();
     };
   });
+  grid.querySelectorAll(".capstest").forEach(b=>{
+    b.onclick = async ()=>{
+      b.disabled = true; b.textContent = "实测中…";
+      const j = await api("/tags/probe", { id: b.dataset.m });
+      if(j && j.ok) toast("能力实测已开始（图像/音频/PDF 各一发），结果稍后显示在标签上");
+      else if(j && j.error) toast("实测失败 · " + j.error);
+      setTimeout(refresh, 2500);
+    };
+  });
   grid.querySelectorAll("[data-vis]").forEach(cb=>{
     cb.onchange = async ()=>{
       const j = await api("/models/visibility", { id: cb.dataset.vis, hidden: !cb.checked });
@@ -890,7 +899,11 @@ function renderModels(s){
       if(parts.length) quotaRow = `<div class="mquota">${parts.join("")}</div>`;
     }
     const tags = (m.systemOne?'<span class="pill warn">判断模型</span>':"")
-      + (m.vision?'<span class="tag">视觉</span>':"") + (m.reasoning?'<span class="tag">思考</span>':(m.custom?"":'<span class="tag">纯文本</span>'));
+      + (m.vision?'<span class="tag">视觉</span>':"")
+      + (m.audioInput?'<span class="tag">音频</span>':"")
+      + (m.fileInput?'<span class="tag">文件</span>':"")
+      + (m.reasoning?'<span class="tag">思考</span>':(m.custom?"":'<span class="tag">纯文本</span>'))
+      + (m.tagSource?`<span class="tag" title="能力标签来源：${esc(m.tagSource)}" style="opacity:.65">${esc(m.tagSource)}</span>`:"");
     card.innerHTML = `
       <div class="mhead"><span class="mname" title="${esc(m.name)}">${esc(m.name)}</span>${pill}</div>
       <div class="mid">${esc(m.id)}</div>
@@ -913,6 +926,7 @@ function renderModels(s){
         <label class="vispick" title="勾选 = 出现在 Agent 的模型选择器里；取消勾选只是不对外展示，直接点名调用仍可用">
           <input type="checkbox" data-vis="${esc(m.id)}" ${m.hidden?"":"checked"}><span>选用</span></label>
         <button class="ghost mtest" data-m="${esc(m.id)}" title="${m.custom?"向该供应商发一个最小请求，实测可用性与首字延迟":"单独探测这个模型的可用性"}">测试</button>
+        ${m.custom?`<button class="ghost capstest" data-m="${esc(m.id)}" title="用你的 Key 发最小图像 / 音频 / PDF 请求，实测该模型真正支持的输入模态（结果最优先）">能力实测</button>`:""}
       </div>`;
     grid.appendChild(card);
   }
@@ -1539,6 +1553,24 @@ function renderSettings(s){
       </div>
 
       <div class="card">
+        <h3>智能路由 <span class="muted" style="font-size:11px">多模态感知 + 候选排序</span></h3>
+        <div class="switch"><div><span class="nm">智能路由总开关</span><div class="ds">开启后：限流切换只挑支持本次请求模态（图像 / 音频 / 文件）的模型，并按下方策略排序候选；关闭则完全回到旧行为（目录顺序，不带能力过滤）。你指定的模型永远是第一选择，策略只影响切换</div></div>
+          <button class="act off" id="tg-smart">关闭</button></div>
+        <div class="switch"><div><span class="nm">候选排序策略</span><div class="ds">目录顺序 = 探测可用优先、列表顺序保底；首字延迟优先 = 在可用且未冷却的候选里挑首字最快的（探测 + 运行时样本）</div></div>
+          <div class="seg" id="strategy-seg">
+            <button data-s="catalog">目录顺序</button>
+            <button data-s="latency">首字延迟</button>
+          </div></div>
+        <div class="switch"><div><span class="nm">耗尽后回落自定义 API</span><div class="ds">免费车道所有候选都被限流时，把本次请求交给自定义 API 里同名 / 能力匹配的模型继续完成（会消耗你自己的 Key 额度，默认关闭）</div></div>
+          <button class="act off" id="tg-fallback">关闭</button></div>
+        <div class="switch"><div><span class="nm">AI 能力标注</span><div class="ds">用免费车道模型后台给模型打能力标签（视觉/音频/文件，存本地 tags.json），供路由过滤与模型页徽章使用；几百 token/批，「实测」过的模型不会被覆盖</div></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="ghost" id="btn-retag">重新标注</button>
+            <button class="act off" id="tg-autotag">关闭</button>
+          </div></div>
+      </div>
+
+      <div class="card">
         <h3>桌面行为</h3>
         <div class="switch"><div><span class="nm">关闭时最小化到托盘</span><div class="ds">关窗口只是隐藏到托盘，托盘"打开管理页"恢复；托盘"退出"才真正退出</div></div>
           <button class="act off" id="tg-tray">关闭</button></div>
@@ -1769,6 +1801,45 @@ function renderSettings(s){
       setToggle("#tg-failover", on);
       toast(on ? "限流自动切换已开启" : "限流自动切换已关闭");
       refresh();
+    };
+  }
+  setToggle("#tg-smart", s.settings.smartRouting);
+  setToggle("#tg-fallback", s.settings.laneFallbackToProviders);
+  setToggle("#tg-autotag", s.settings.autoTagEnabled);
+  const sseg = el.querySelector("#strategy-seg");
+  if (sseg){
+    const cur = s.settings.routingStrategy || "catalog";
+    sseg.querySelectorAll("button").forEach(b=>b.classList.toggle("on", b.dataset.s===cur));
+    if(!sseg.dataset.bound){
+      sseg.dataset.bound = "1";
+      sseg.querySelectorAll("button").forEach(b=>b.onclick = async ()=>{
+        const j = await api("/settings", { routingStrategy: b.dataset.s });
+        if(j) toast(b.dataset.s==="latency" ? "候选排序：首字延迟优先" : "候选排序：目录顺序");
+        refresh();
+      });
+    }
+  }
+  const bindSettingToggle = (sel, key, msgOn, msgOff) => {
+    const b = el.querySelector(sel);
+    if(b && !b.dataset.bound){
+      b.dataset.bound = "1";
+      b.onclick = async ()=>{
+        const on = b.dataset.on !== "1";
+        const j = await api("/settings", { [key]: on });
+        if(j){ setToggle(sel, on); toast(on ? msgOn : msgOff); }
+        refresh();
+      };
+    }
+  };
+  bindSettingToggle("#tg-smart", "smartRouting", "智能路由已开启：切换会避开不支持本次模态的模型", "智能路由已关闭：恢复目录顺序、不带能力过滤");
+  bindSettingToggle("#tg-fallback", "laneFallbackToProviders", "耗尽后回落自定义 API 已开启（消耗你的 Key 额度）", "耗尽后回落自定义 API 已关闭");
+  bindSettingToggle("#tg-autotag", "autoTagEnabled", "AI 能力标注已开启", "AI 能力标注已暂停");
+  const retagBtn = el.querySelector("#btn-retag");
+  if(retagBtn && !retagBtn.dataset.bound){
+    retagBtn.dataset.bound = "1";
+    retagBtn.onclick = async ()=>{
+      const j = await api("/tags/retag", {});
+      if(j && j.ok) toast("已排队 " + (j.queued||0) + " 个模型，后台标注中…");
     };
   }
   const tseg = el.querySelector("#theme-seg");

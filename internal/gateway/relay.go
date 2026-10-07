@@ -434,6 +434,9 @@ func (s *Server) adminProviderSave(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+			if s.tagger != nil && len(p.Models) > 0 {
+				s.tagger.Enqueue(p.Models...)
+			}
 			s.logInfof("自定义供应商已更新: %s (%s)", p.Name, p.ID)
 			writeJSON(w, 200, map[string]any{"ok": true, "id": p.ID})
 			return
@@ -450,6 +453,9 @@ func (s *Server) adminProviderSave(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.Save(); err != nil {
 		writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 		return
+	}
+	if s.tagger != nil && len(p.Models) > 0 {
+		s.tagger.Enqueue(p.Models...)
 	}
 	s.logInfof("自定义供应商已添加: %s (%s, %d 模型)", p.Name, p.ID, len(p.Models))
 	writeJSON(w, 200, map[string]any{"ok": true, "id": p.ID})
@@ -522,6 +528,9 @@ func (s *Server) adminProviderModels(w http.ResponseWriter, r *http.Request) {
 				if err := s.Store.Save(); err != nil {
 					writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 					return
+				}
+				if s.tagger != nil && len(p.Models) > 0 {
+					s.tagger.Enqueue(p.Models...)
 				}
 				s.logInfof("自定义供应商模型已刷新: %s (保留 %d 个勾选)", p.Name, len(p.Models))
 			}

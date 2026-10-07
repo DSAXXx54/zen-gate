@@ -14,6 +14,8 @@ type ModelInfo struct {
 	Wire               string `json:"wire"`                // chat | responses | messages | systemone
 	SystemOne          bool   `json:"systemOne,omitempty"` // decision model, not chat-capable
 	Vision             bool   `json:"vision"`
+	AudioInput         bool   `json:"audioInput,omitempty"`
+	FileInput          bool   `json:"fileInput,omitempty"`
 	Reasoning          bool   `json:"reasoning"`
 	ContextWindow      int    `json:"contextWindow"`
 	MaxOutput          int    `json:"maxOutput"`
@@ -38,6 +40,8 @@ func IsFreeLane(modelID string) bool {
 type capability struct {
 	match              *regexp.Regexp
 	vision             bool
+	audio              bool
+	file               bool
 	reasoning          bool
 	contextWindow      int
 	maxOutput          int
@@ -48,19 +52,21 @@ type capability struct {
 // provider's published capacities (checked against official model pages and
 // reviews, kept in sync with the blurbs below); vision is what the lane
 // actually accepted under a direct probe, not what a model card claims.
+// audio/file stay false until verified (a live probe or the AI tagger upgrades
+// them) — an unverified modality must never receive that modality's traffic.
 var capabilities = []capability{
-	{regexp.MustCompile(`^mimo.*v2\.6`), true, true, 1048576, 131072, false},
-	{regexp.MustCompile(`^mimo.*v2\.5`), true, true, 1048576, 131072, false},
-	{regexp.MustCompile(`^mimo`), true, true, 262144, 131072, true},
-	{regexp.MustCompile(`^muse.?spark`), true, true, 1048576, 131072, true},
-	{regexp.MustCompile(`^nemotron`), false, true, 128000, 32768, true},
-	{regexp.MustCompile(`^ling`), false, true, 262144, 32768, true},
-	{regexp.MustCompile(`^space.?bunny`), true, true, 1048576, 65536, true},
-	{regexp.MustCompile(`^union`), true, false, 262144, 131072, true},
-	{regexp.MustCompile(`^deepseek`), false, true, 1048576, 65536, true},
-	{regexp.MustCompile(`^longcat`), true, true, 1048576, 32768, true},
-	{regexp.MustCompile(`^fledge`), false, true, 131072, 32768, true},
-	{regexp.MustCompile(`^jev`), false, false, 32768, 4096, true},
+	{regexp.MustCompile(`^mimo.*v2\.6`), true, false, false, true, 1048576, 131072, false},
+	{regexp.MustCompile(`^mimo.*v2\.5`), true, false, false, true, 1048576, 131072, false},
+	{regexp.MustCompile(`^mimo`), true, false, false, true, 262144, 131072, true},
+	{regexp.MustCompile(`^muse.?spark`), true, false, false, true, 1048576, 131072, true},
+	{regexp.MustCompile(`^nemotron`), false, false, false, true, 128000, 32768, true},
+	{regexp.MustCompile(`^ling`), false, false, false, true, 262144, 32768, true},
+	{regexp.MustCompile(`^space.?bunny`), true, false, false, true, 1048576, 65536, true},
+	{regexp.MustCompile(`^union`), true, false, false, false, 262144, 131072, true},
+	{regexp.MustCompile(`^deepseek`), false, false, false, true, 1048576, 65536, true},
+	{regexp.MustCompile(`^longcat`), true, false, false, true, 1048576, 32768, true},
+	{regexp.MustCompile(`^fledge`), false, false, false, true, 131072, 32768, true},
+	{regexp.MustCompile(`^jev`), false, false, false, false, 32768, 4096, true},
 }
 
 var regionSensitiveRes = []*regexp.Regexp{regexp.MustCompile(`^muse.?spark`)}
@@ -122,7 +128,7 @@ func capabilitiesFor(base string) capability {
 			return c
 		}
 	}
-	return capability{vision: false, reasoning: true, contextWindow: 131072, maxOutput: 32768, canDisableThinking: true}
+	return capability{vision: false, audio: false, file: false, reasoning: true, contextWindow: 131072, maxOutput: 32768, canDisableThinking: true}
 }
 
 // BuildCatalog merges the upstream listing with the local capability table,
@@ -158,6 +164,8 @@ func BuildCatalog(ids []string) []ModelInfo {
 			Wire:               wire,
 			SystemOne:          wire == "systemone",
 			Vision:             caps.vision,
+			AudioInput:         caps.audio,
+			FileInput:          caps.file,
 			Reasoning:          caps.reasoning,
 			ContextWindow:      caps.contextWindow,
 			MaxOutput:          caps.maxOutput,
