@@ -51,9 +51,11 @@ func TestAutostartRoundTrip(t *testing.T) {
 	}
 
 	// bootstrap must have put the job in the user's gui domain. A headless
-	// runner has no gui domain at all, so the launchd half of the contract is
-	// only checked where one exists; the plist assertions above still ran.
-	if hasGUIDomain() {
+	// runner has no usable gui domain — `launchctl bootstrap` may even answer
+	// success while the session never picks the job up (exit 113 on print) —
+	// so the launchd half of the contract is only asserted off CI; the plist
+	// assertions above still ran everywhere.
+	if hasGUIDomain() && os.Getenv("CI") == "" {
 		if err := exec.Command("launchctl", "print", launchdServiceTarget()).Run(); err != nil {
 			t.Errorf("launchd job not loaded: %v", err)
 		}
@@ -68,7 +70,7 @@ func TestAutostartRoundTrip(t *testing.T) {
 	if AutostartEnabled() {
 		t.Error("AutostartEnabled true after disabling")
 	}
-	if hasGUIDomain() {
+	if hasGUIDomain() && os.Getenv("CI") == "" {
 		if err := exec.Command("launchctl", "print", launchdServiceTarget()).Run(); err == nil {
 			t.Error("launchd job still loaded after disable")
 		}

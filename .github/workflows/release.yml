@@ -32,14 +32,14 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}" -replace '^v',''
+          $ver = "${{ github.ref_name }}" -replace '^v','' -replace '/','-'
           go build -trimpath -ldflags "-s -w -H=windowsgui -X zen-gate/internal/gateway.Version=$ver -X zen-gate/internal/update.Current=$ver" -o dist/zen-gate.exe ./cmd/zen-gate
           go build -trimpath -ldflags "-s -w" -o dist/zenstats.exe ./cmd/zenstats
 
       - name: Package
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}" -replace '^v',''
+          $ver = "${{ github.ref_name }}" -replace '^v','' -replace '/','-'
           Copy-Item README.md dist/README.md
           if (-not (Test-Path dist/zen-gate.exe)) { throw "zen-gate.exe missing" }
           tar -a -c -f "dist/zen-gate-$ver.zip" -C dist zen-gate.exe README.md
@@ -73,7 +73,7 @@ jobs:
         run: go test ./...
 
       - name: Build
-        run: tools/build-macos.sh "${GITHUB_REF_NAME#v}"
+        run: tools/build-macos.sh "${GITHUB_REF_NAME#v}" | tr '/' '-'
 
       - name: Verify
         run: |
