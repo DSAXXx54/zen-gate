@@ -21,6 +21,10 @@ import (
 // Home returns the data directory.
 func Home() string { return AppDataDir() }
 
+// SubsDir is where the sing-box sidecar's generated config, log and the
+// auto-downloaded binary live.
+func SubsDir() string { return filepath.Join(Home(), "subs") }
+
 // Config is the persisted service configuration.
 type WindowState struct {
 	X         int  `json:"x"`
@@ -51,6 +55,17 @@ type Provider struct {
 	Note     string   `json:"note,omitempty"` // preset provenance / key-application hint
 }
 
+// Subscription is one user-added proxy subscription URL: the fetched body is
+// a (usually base64) list of node URIs — vless://, vmess://, ss://, trojan://,
+// hy2://, tuic:// — that the sing-box sidecar turns into local socks inbounds
+// for the lane's per-request egress rotation.
+type Subscription struct {
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled"`
+}
+
 type Config struct {
 	SchemaVersion        int    `json:"schemaVersion"`
 	Port                 int    `json:"port"`
@@ -71,8 +86,14 @@ type Config struct {
 	LastVersion          string `json:"lastVersion,omitempty"`
 	StatsServerURL       string `json:"statsServerUrl,omitempty"`
 	InstallID            string `json:"installId,omitempty"`
-	ProxyMode            string `json:"proxyMode"` // env | system | direct | custom
+	ProxyMode            string `json:"proxyMode"` // env | system | direct | custom | rotate
 	ProxyURL             string `json:"proxyUrl,omitempty"`
+	// SubsEnabled turns on the sing-box sidecar + per-request egress rotation
+	// over the subscription nodes; SingBoxPath optionally points at a
+	// user-provided sing-box.exe (empty = the auto-downloaded one).
+	SubsEnabled    bool           `json:"subsEnabled,omitempty"`
+	Subscriptions  []Subscription `json:"subscriptions,omitempty"`
+	SingBoxPath    string         `json:"singBoxPath,omitempty"`
 	FailoverEnabled      bool   `json:"failoverEnabled"`
 	FailoverMax          int    `json:"failoverMax"`
 	Providers            []Provider `json:"providers,omitempty"`
@@ -278,6 +299,11 @@ func Open() (*Store, error) {
 		b := make([]byte, 12)
 		_, _ = rand.Read(b)
 		cfg.InstallID = hex.EncodeToString(b)
+	}
+	// v9: subscription rotation support — no backfill needed, the new fields
+	// default to off/empty; the bump marks installs that understand them.
+	if cfg.SchemaVersion < 9 {
+		cfg.SchemaVersion = 9
 	}
 	if cfg.SchemaVersion == 0 {
 		// first migration to the versioned schema: mature defaults

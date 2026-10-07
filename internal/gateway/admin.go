@@ -119,6 +119,19 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, rest string
 		}
 		go s.announcementPull()
 		writeJSON(w, 200, map[string]any{"ok": true})
+	case rest == "subs/save" && r.Method == http.MethodPost:
+		s.adminSubsSave(w, r)
+	case rest == "subs/refresh" && r.Method == http.MethodPost:
+		s.adminSubsRefresh(w, r)
+	case rest == "subs/probe" && r.Method == http.MethodPost:
+		if s.subs == nil {
+			writeJSON(w, 503, map[string]any{"ok": false, "error": "订阅轮询未就绪"})
+			return
+		}
+		go s.subs.ProbeAll(r.Context())
+		writeJSON(w, 200, map[string]any{"ok": true})
+	case rest == "subs/singbox" && r.Method == http.MethodPost:
+		s.adminSubsSingBox(w, r)
 	default:
 		writeJSON(w, 404, map[string]any{"error": "not found"})
 	}
@@ -290,6 +303,7 @@ func (s *Server) adminState(w http.ResponseWriter) {
 		"probingModel":         s.currentProbingModel(),
 		"providers":            s.providerViews(),
 		"providerPresets":      relay.Presets,
+		"subscriptions":        s.subsState(),
 		"announcements":        activeAnnouncements,
 		"announcementArchive":  endedAnnouncements,
 		"version":              Version,
@@ -660,6 +674,146 @@ func (s *Server) adminProxyTest(w http.ResponseWriter, r *http.Request) {
 		"egressIP":      eg.IP,
 		"egressCountry": eg.Country,
 	})
+}
+
+// --- 订阅轮询 (sing-box sidecar) ---------------------------------------------
+
+// adminSubsSave replaces the subscription list and the feature switch in one
+// call; enabling runs a full refresh cycle (fetch → parse → sidecar restart).
+func (s *Server) adminSubsSave(w http.ResponseWriter, r *http.Request) {
+	if s.subs == nil {
+		writeJSON(w, 503, map[string]any{"ok": false, "error": "订阅轮询未就绪"})
+		return
+	}
+	var in struct {
+		Enabled bool           `json:"enabled"`
+		Items   []store.Subscription `json:"items"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	clean := []store.Subscription{}
+	for _, it := range in.Items {
+		it.URL = strings.TrimSpace(it.URL)
+		if it.URL == "" {
+			continue
+		}
+		if !strings.Contains(it.URL, "://") {
+			it.URL = "https://" + it.URL
+		}
+		if it.ID == "" {
+			it.ID = "sub-" + store.GenerateKey("sub")[4:12]
+		}
+		clean = append(clean, it)
+	}
+	cfg := s.Store.Config()
+	cfg.SubsEnabled = in.Enabled
+	cfg.Subscriptions = clean
+	_ = s.Store.Save()
+	if s.logger != nil {
+		s.logger.Infof("订阅轮询 = %v (%d 个订阅)", in.Enabled, len(clean))
+	}
+	if !in.Enabled {
+		s.subs.Stop()
+		if cfg.ProxyMode == "rotate" {
+			cfg.ProxyMode = "env"
+			_ = s.Store.Save()
+			lane.SetProxy("env", "")
+			lane.SetRotator(nil)
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := s.subs.Apply(ctx); err != nil {
+			if s.logger != nil {
+				s.logger.Errorf("订阅刷新失败: %v", err)
+			}
+			return
+		}
+		lane.SetProxy("rotate", "")
+	}()
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// adminSubsRefresh re-runs the fetch/parse/restart/probe cycle on demand.
+func (s *Server) adminSubsRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.subs == nil {
+		writeJSON(w, 503, map[string]any{"ok": false, "error": "订阅轮询未就绪"})
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := s.subs.Refresh(ctx); err != nil {
+			if s.logger != nil {
+				s.logger.Errorf("订阅刷新失败: %v", err)
+			}
+		}
+	}()
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// adminSubsSingBox sets the user-provided sing-box path or triggers the
+// auto-download of the official release.
+func (s *Server) adminSubsSingBox(w http.ResponseWriter, r *http.Request) {
+	if s.subs == nil {
+		writeJSON(w, 503, map[string]any{"ok": false, "error": "订阅轮询未就绪"})
+		return
+	}
+	var in struct {
+		Path     string `json:"path,omitempty"`
+		Download bool   `json:"download,omitempty"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if in.Download {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			if _, err := s.subs.Download(ctx); err != nil && s.logger != nil {
+				s.logger.Errorf("下载 sing-box 失败: %v", err)
+			}
+		}()
+		writeJSON(w, 200, map[string]any{"ok": true, "started": true})
+		return
+	}
+	if err := s.subs.SetPath(in.Path); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// subsState builds the 订阅轮询 view for the dashboard: config, sidecar health
+// and per-node live state in one payload.
+func (s *Server) subsState() map[string]any {
+	cfg := s.Store.Config()
+	items := []any{}
+	for _, sub := range cfg.Subscriptions {
+		items = append(items, map[string]any{
+			"id":      sub.ID,
+			"name":    sub.Name,
+			"url":     sub.URL,
+			"enabled": sub.Enabled,
+		})
+	}
+	singbox := map[string]any{"running": false, "nodes": []any{}, "alive": 0}
+	if s.subs != nil {
+		singbox = s.subs.Status()
+	}
+	singbox["configured"] = cfg.SubsEnabled
+	singbox["path"] = cfg.SingBoxPath
+	return map[string]any{
+		"enabled":  cfg.SubsEnabled,
+		"items":    items,
+		"singbox":  singbox,
+	}
 }
 
 // adminLogs tails the in-memory ring with an optional level filter.

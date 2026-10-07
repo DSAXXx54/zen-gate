@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	io "io"
+	"net"
 	neturl "net/url"
 	"net/http"
 	"regexp"
@@ -54,9 +55,40 @@ func ClassifyFailure(status int, payload string, retryAfterSec int) *UpstreamErr
 // Transport when the proxy setting changes (hot, no restart).
 var laneHTTP = &http.Client{}
 
+// Rotator supplies the per-request egress for "rotate" proxy mode: each TCP
+// dial is tunneled through one of the healthy subscription nodes so successive
+// requests leave from different IPs. Implemented by the sing-box sidecar
+// manager in internal/subs.
+type Rotator interface {
+	// Dial connects to addr (host:port) through the next healthy node.
+	Dial(ctx context.Context, network, addr string) (net.Conn, error)
+	// Healthy reports how many nodes are currently dialable.
+	Healthy() int
+}
+
+var (
+	rotMu    sync.RWMutex
+	rotator  Rotator
+	rotation atomic.Bool
+)
+
+// SetRotator installs (or, with nil, removes) the per-request egress rotator.
+func SetRotator(r Rotator) {
+	rotMu.Lock()
+	rotator = r
+	rotMu.Unlock()
+	rotation.Store(r != nil)
+}
+
+// RotationActive reports whether per-request egress rotation is live. The
+// egress watcher uses it to skip the probe-round trigger on IP changes — with
+// rotation the exit IP is expected to flap constantly.
+func RotationActive() bool { return rotation.Load() }
+
 // SetProxy reconfigures the shared client: "env" honors HTTP(S)_PROXY,
 // "system" follows the Windows system proxy (WinINET settings), "direct"
-// bypasses, "custom" uses the given URL.
+// bypasses, "custom" uses the given URL, "rotate" tunnels every dial through
+// the Rotator installed via SetRotator.
 func SetProxy(mode, url string) {
 	t := &http.Transport{}
 	switch mode {
@@ -71,6 +103,18 @@ func SetProxy(mode, url string) {
 		}
 	case "system":
 		t.Proxy = func(*http.Request) (*neturl.URL, error) { return SystemProxyURL(), nil }
+	case "rotate":
+		t.Proxy = nil
+		t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			rotMu.RLock()
+			r := rotator
+			rotMu.RUnlock()
+			if r != nil {
+				return r.Dial(ctx, network, addr)
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		}
 	default:
 		t.Proxy = http.ProxyFromEnvironment
 	}
