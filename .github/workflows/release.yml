@@ -3,6 +3,17 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # PRs get the build gate too, so a change to the shared Go code is proven on
+  # both platforms before it lands. Releases still only happen on tags: the
+  # publish step below is gated on the ref, and a fork PR's token is read-only.
+  pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "assets/**"
+      - "tools/build-macos.sh"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:
